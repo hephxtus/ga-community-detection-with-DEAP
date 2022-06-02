@@ -334,6 +334,7 @@ def community_score(chrom,subsets,r,Adj):
     CS=0
     # print(subsets)
     for s in subsets:
+
         submatrix = np.zeros((len(chrom),len(chrom)),dtype=int)
         for i in s:
             for j in s:
