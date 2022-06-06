@@ -1,3 +1,4 @@
+import itertools
 import random
 import sys
 import time
@@ -10,6 +11,7 @@ from deap import base, creator, tools
 from neo4j import GraphDatabase
 import matplotlib.pyplot as plt
 import networkx.algorithms.community as nx_comm
+from networkx import Graph
 
 """
 implementation of the DEAP algorithm for community detection
@@ -61,7 +63,7 @@ Mutation: The mutation operator that randomly change the value j of a i-th gene 
             member, and applies the specialized variation operators to produce the new population.
 """
 # create the population
-creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+creator.create("FitnessMax", base.Fitness, weights=(-1.0,))
 creator.create("Individual", np.ndarray, fitness=creator.FitnessMax, subset=list)
 
 # create the toolbox
@@ -91,8 +93,8 @@ def community_detection(graph,population=300,generation=30,r=1.5):
     toolbox.register("subsets", find_subsets, toolbox.chromosomes())
     toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.chromosomes, nodes_length)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-    # toolbox.register("evaluate", community_score, r=r, Adj=Adj)
-    toolbox.register("evaluate", nx_comm.modularity, G=graph, weight='weight', resolution=1.0)
+    toolbox.register("evaluate", getModularity, r=r, Adj=Adj)
+    # toolbox.register("evaluate", nx_comm.modularity, G=graph, weight='weight', resolution=1.0)
 
     pop = toolbox.population(n=population)
     # toolbox.register("deme", tools.initRepeat, list, toolbox.individual)
@@ -114,7 +116,11 @@ def community_detection(graph,population=300,generation=30,r=1.5):
         # print(ind.subset)
         # i = toolbox.evaluate(communities=ind.subset)
         # print(i)
-        ind.fitness.values = (toolbox.evaluate(communities=ind.subset),)
+        # print(ind.subset)
+        ind.fitness.values = toolbox.evaluate(chrom=ind, subsets=ind.subset)
+
+        # print(ind.fitness.values)
+        # print(community_score(ind, ind.subset, r=r, Adj=Adj))
 
 
     toolbox.register("mate", tools.cxOnePoint)
@@ -149,7 +155,8 @@ def community_detection(graph,population=300,generation=30,r=1.5):
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         for ind in invalid_ind:
             ind.subset = find_subsets(ind, graph)
-            ind.fitness.values = (toolbox.evaluate(communities=ind.subset),)
+            ind.fitness.values = toolbox.evaluate(chrom = ind, subsets=ind.subset)
+            # print(ind.fitness.values)
 
         # print("  Evaluated %i individuals" % len(invalid_ind))
 
@@ -175,18 +182,31 @@ def community_detection(graph,population=300,generation=30,r=1.5):
 
     unique_coms = np.unique(list(best_ind))
     cmap = {
-        0: 'maroon',
-        1: 'teal',
-        2: 'black',
-        3: 'orange',
-        4: 'green',
-        5: 'yellow'
+        0: 'tab:maroon',
+        1: 'tab:teal',
+        2: 'tab:black',
+        3: 'tab:orange',
+        4: 'tab:green',
+        5: 'tab:yellow'
     }
+    node_cmap = {}
+    # node_cmap = [cmap[i] for i in range(len(best_ind.subset))]
+    for i, nodes in enumerate(best_ind.subset):
+        for node in nodes:
+            node_cmap[node] = cmap[i]
 
-    node_cmap = [cmap[i] for i in range(len(best_ind.subset))]
     print(node_cmap)
-    pos = nx.spring_layout(graph)
-    nx.draw(graph, pos, node_size=75, alpha=0.8, node_color=list(node_cmap), with_labels=True)
+
+    Graph(graph,
+          node_color=node_cmap, node_edge_width=0, edge_alpha=0.1,
+          node_layout='community', node_layout_kwargs=dict(node_to_community=best_ind.subset),
+          edge_layout='bundled', edge_layout_kwargs=dict(k=2000),
+          )
+    # {node for node in nodes): cmap[n_index] for n_index, nodes in enumerate(best_ind.subset)}
+    # print([n for n in node_color])
+    # print(node_cmap)
+    # pos = nx.spring_layout(graph)
+    # nx.draw(graph, pos, node_size=75, alpha=0.8, node_color=list(node_cmap), with_labels=True)
     plt.show()
 
 
@@ -209,63 +229,151 @@ def generate_chrom(nodes_length):
     rand = np.random.randint(0, nodes_length)
     return rand
 
-def merge_subsets(sub, to_skip):
+def merge_subsets(sub):
     arr = []
     to_skip = []
-
     for s in range(len(sub)):
         if sub[s] not in to_skip:
             new = sub[s]
-            # print(new)
             for x in sub:
-                if sub[s] & x and x not in to_skip:
+                if sub[s] & x:
                     new = new | x
-                    print("x:", x)
                     to_skip.append(x)
-            # print("new:",new)
             arr.append(new)
-    # print("to skip:", to_skip)
-    return arr, to_skip
+    return arr
 
 
-def find_subsets(chrom, G: nx.Graph):
+def find_subsets(chrom, G: nx.Graph, to_skip=None):
     """
     Finds all subsets of a given chromsome
 
     :param chrom:
     :return:
     """
-    temp = set(x for x in range(len(chrom)))
-    subs = []
-    to_skip = set()
-    sub = []
-    for x in range(len(chrom)):
-        if chrom[x] != x:
-            sub.append((x, chrom[x]))
-        else:
-            sub.append(tuple(random.choice(list(G.edges(x)))))
-    # sub = [(x, chrom[x]) for x in range(len(chrom))]
+
+    sub = [{x, chrom[x]} for x in range(len(chrom))]
     # print(sub)
+    result = sub
+    i = 0
+    while i < len(result):
+        candidate = merge_subsets(result)
+        if candidate != result:
+            result = candidate
+        else:
+            break
+        result = candidate
+        i += 1
+    # print(result)
+    return result
     # print(chrom)
-    for n in chrom:
-        if n in to_skip:
-            continue
-        connections = G.edges(n)
-        new = set()
-        # print(to_skip)
-        for e in sub:
-            if e in connections and (e[1] not in to_skip or e[1] == n) and (e[0] not in to_skip or e[0] == n):
-                # print(e)
-                new = new | set(e)
-                to_skip = to_skip | set(e)
-        # print(new)
-        # print("----")
-        if new != set():
-            subs.append(new)
-            temp= temp - new
-    # print("remaining:", temp) if temp != set() else print("no remaining")
-    if temp != set():
-        subs.append(temp)
+    # sub = set(itertools.combinations(chrom, 2))
+    # sub = list(G.subgraph(chrom).edges)
+    # sub = list(H.intersection(sub))
+
+    # for i in range(len(sub)):
+    #     sub[i] = set(sub[i])
+    # # print(sub)
+    # result = sub
+    # i = 0
+    # to_skip = []
+    # while i < len(result):
+    #     # print("i:", i)
+    #     # print(result)
+    #     candidate, to_skip = merge_subsets(result, to_skip)
+    #     if candidate != result:
+    #         result = candidate
+    #     else:
+    #         break
+    #     result = candidate
+    #     i += 1
+    # print(result)
+
+    # H = set(G.nodes()).difference(chrom)
+    # print(to_skip)
+    # for h in H:
+    #     result.append({h})
+    # print(result)
+    return result
+    # if to_skip is None:
+    #     to_skip = set()
+    # remainder = set(x for x in range(len(chrom)))
+    # if len(to_skip) > 0:
+    #     to_remove = remainder.intersection(to_skip)
+    #     remainder = remainder.difference(to_remove)
+    # subs = []
+    # sub = []
+    #
+    # for x in range(len(chrom)):
+    #     initial = None
+    #     neighbours = set(G.neighbors(chrom[x]))
+    #     if len(to_skip) > 0:
+    #         to_remove = neighbours.intersection(to_skip)
+    #         neighbours = neighbours.difference(to_remove)
+    #     if x in neighbours:
+    #         initial = (x, chrom[x])
+    #     elif neighbours == set():
+    #         initial = (chrom[x],)
+    #     else:
+    #         initial = (random.choice(list(neighbours)), chrom[x])
+    #     sub.append(initial)
+    # # print(sub)
+    # # sub = [(x, chrom[x]) for x in range(len(chrom))]
+    # # print(sub)
+    # # print(chrom)
+    # for n in chrom:
+    #     if n in to_skip:
+    #         # print("skipping:", n)
+    #         continue
+    #     connections = G.edges(n)
+    #     new = set()
+    #     # print(to_skip)
+    #     for e in sub:
+    #         if len(e) == 1:
+    #             continue
+    #         if e in connections:
+    #
+    #             if (e[1] not in to_skip or e[1] == n) and (e[0] not in to_skip or e[0] == n):
+    #             # print(e)
+    #                 new = new | set(e)
+    #                 to_skip = to_skip | set(e)
+    #             elif e[1] not in to_skip or e[1] ==n:
+    #                 new = new | {e[1]}
+    #                 to_skip = to_skip | {e[1]}
+    #             elif e[0] not in to_skip or e[0] == n:
+    #                 new = new | {e[0]}
+    #                 to_skip = to_skip | {e[0]}
+    #
+    #     # print(new)
+    #     # print("----")
+    #     if new != set():
+    #         subs.append(new)
+    #         remainder= remainder - new
+    # print("1st remaining:", remainder) if remainder != set() else print("no remaining")
+    # #
+    # print("to skip:", to_skip)
+    # # print("subs", subs)
+    # if remainder != set():
+    #     if len(remainder) == 1:
+    #         # print("remainder:", remainder)
+    #         subs.append(remainder)
+    #     else:
+    #         new = find_subsets(chrom=list(remainder), G=G, to_skip=to_skip)
+    #         subs.extend(new)
+    #     # i = 0
+    #     # while i < len(temp):
+    #     #     n = temp.pop()
+    #     #     print(list(G.neighbors(n)))
+    #     #     print(subs)
+    #     #     print(temp)
+    #     #     for x in range(len(subs)):
+    #     #         for s in sub:
+    #     #             if s in G.neighbors(n):
+    #     #                 print(s)
+    #     #                 subs[x] = subs[x] | {n}
+    #     #                 break
+    # remainder = remainder
+    # print("2nd remaining:", remainder) if remainder != set() else print("no remaining")
+    # print(subs)
     return subs
     # for t in temp:
     #     # print(sub[t][0], sub[t][1])
@@ -305,24 +413,24 @@ def find_subsets(chrom, G: nx.Graph):
     # print(result)
     # return result
 
-def getModularity(chrom, network, subsets):
-    Q = 0
-    G = network.copy()
-    nx.set_edge_atAtributes(G, {e: 1 for e in G.edges}, 'weight')
-    A = nx.to_scipy_sparse_matrix(G).astype(float)
-    # for undirected graphs, in and out treated as the same thing
-    out_degree = in_degree = dict(nx.degree(G))
-    M = 2. * (G.number_of_edges())
-    print("Calculating modularity for undirected graph")
+# def getModularity(chrom, network, subsets):
+#     Q = 0
+#     G = network.copy()
+#     nx.set_edge_atAtributes(G, {e: 1 for e in G.edges}, 'weight')
+#     A = nx.to_scipy_sparse_matrix(G).astype(float)
+#     # for undirected graphs, in and out treated as the same thing
+#     out_degree = in_degree = dict(nx.degree(G))
+#     M = 2. * (G.number_of_edges())
+#     print("Calculating modularity for undirected graph")
+#
+#     nodes = list(G)
+#     Q = np.sum([A[i, j] - in_degree[nodes[i]] * \
+#                 out_degree[nodes[j]] / M \
+#                 for i, j in product(range(len(nodes)), range(len(nodes)))
+#                 if subsets[nodes[i]] == subsets[nodes[j]]])
+#     return Q / M
 
-    nodes = list(G)
-    Q = np.sum([A[i, j] - in_degree[nodes[i]] * \
-                out_degree[nodes[j]] / M \
-                for i, j in product(range(len(nodes)), range(len(nodes)))
-                if subsets[nodes[i]] == subsets[nodes[j]]])
-    return Q / M
-
-def community_score(chrom,subsets,r,Adj):
+def getModularity(chrom,subsets,r,Adj):
     """
     :param chrom: chromosome of the individual
     :param subsets: connected components of the graph
@@ -362,25 +470,17 @@ def mutation(chrom,Adj,mutation_rate):
     """
 
     if np.random.random_sample() < mutation_rate:
-        chrom = chrom
-        neighbor = []
-        while len(neighbor) < 2:
-            mutant = np.random.randint(1, len(chrom))
-            # print(Adj[mutant])
-            row = Adj[mutant].toarray()[0]
-            # print(row)
-            neighbor = [chrom[i] for i in range(len(row)) if row[i] == 1]
-            # print(chrom)
-            # print(mutant)
-            if chrom[mutant] in neighbor:
-                # print("yes")
-                # print(neighbor, chrom[mutant])
-                neighbor.remove(chrom[mutant])
-                to_change = int(np.floor(np.random.random_sample() * (len(neighbor))))
-                chrom[mutant] = neighbor[to_change]
-                neighbor.append(chrom[mutant])
-    return chrom
-
+        length = len(chrom)
+        mask = np.random.randint(2, size=length)
+        mutated_chrom = np.zeros(length, dtype=int)
+        for i in range(len(mask)):
+            if mask[i] == 1:
+                mutated_chrom[i] = chrom[i]
+            else:
+                mutated_chrom[i] = np.random.randint(0, length)
+        return mutated_chrom
+    else:
+        return chrom
 # n = 10
 # G = generate_network(n)
 # print(nx.info(G))
@@ -391,7 +491,8 @@ def mutation(chrom,Adj,mutation_rate):
 # nodes = [0,1,2,3,4,5,6,7,8,9,10]
 # edges = [(0, 1), (0, 4), (1, 2), (2, 3), (1, 3), (3, 0), (0, 2), (4, 5), (5, 6), (6, 7), (10, 8), (10, 9), (8, 9),
 #          (8, 7), (9, 7), (7, 10)]
-graph = nx.complete_graph(20)
+# graph = nx.complete_graph(22)
+graph = nx.karate_club_graph()
 pos = nx.spring_layout(graph)
 nx.draw(graph, pos, node_size=75, alpha=0.8)
 plt.show()
