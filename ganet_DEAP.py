@@ -63,13 +63,38 @@ Mutation: The mutation operator that randomly change the value j of a i-th gene 
             member, and applies the specialized variation operators to produce the new population.
 """
 # create the population
-creator.create("FitnessMax", base.Fitness, weights=(-1.0,))
+creator.create("FitnessMax", base.Fitness, weights=(1.0,))
 creator.create("Individual", np.ndarray, fitness=creator.FitnessMax, subset=list)
 
 # create the toolbox
 toolbox = base.Toolbox()
 
+def draw_communities(communities,G, title='TEST'):
+    plt.clf()
+    node_cmap = []
+    cmap = {
+        0: 'gray',
+        1: 'tab:red',
+        2: 'tab:blue',
+        3: 'tab:orange',
+        4: 'tab:green',
+        5: 'tab:yellow'
+    }
+    communities = list(communities)
+    # print(list(map(lambda x: cmap[communities.index(x)], communities)))
+    # nx.draw_networkx(G, node_color=list(map(lambda x: cmap[communities.index(x)], communities)), with_labels=True)
+    for i, nodes in enumerate(communities):
+        for node in nodes:
+            node_cmap.append((node, {"color": cmap[i]}))
+    print(node_cmap)
 
+    modularity = nx_comm.modularity(G, communities)
+    print(communities)
+    for key in range(len(communities)):
+        sub_graph = G.subgraph(communities[key])
+        nx.draw_networkx(sub_graph, pos=nx.spring_layout(sub_graph), node_color=cmap[key], node_size=100)
+    plt.annotate(f'Modularity: {modularity}', xy=(0.5, 0.05), xycoords='figure fraction', horizontalalignment='center',)
+    plt.savefig(title)
 
 def community_detection(graph,population=300,generation=30,r=1.5):
     """
@@ -93,7 +118,7 @@ def community_detection(graph,population=300,generation=30,r=1.5):
     toolbox.register("subsets", find_subsets, toolbox.chromosomes())
     toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.chromosomes, nodes_length)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-    toolbox.register("evaluate", getModularity, r=r, Adj=Adj)
+    toolbox.register("evaluate", new_modularity)
     # toolbox.register("evaluate", nx_comm.modularity, G=graph, weight='weight', resolution=1.0)
 
     pop = toolbox.population(n=population)
@@ -117,14 +142,16 @@ def community_detection(graph,population=300,generation=30,r=1.5):
         # i = toolbox.evaluate(communities=ind.subset)
         # print(i)
         # print(ind.subset)
-        ind.fitness.values = toolbox.evaluate(chrom=ind, subsets=ind.subset)
+        # print(nx_comm.modularity(graph, ind.subset))
+        # print(new_modularity(graph.subgraph(ind), ind.subset))
+        ind.fitness.values = toolbox.evaluate(graph.subgraph(ind), subsets=ind.subset)
 
         # print(ind.fitness.values)
         # print(community_score(ind, ind.subset, r=r, Adj=Adj))
 
 
     toolbox.register("mate", tools.cxOnePoint)
-    toolbox.register("mutate", tools.mutUniformInt, low=0, up=10, indpb=0.2)
+    toolbox.register("mutate", tools.mutUniformInt, low=0, up=len(graph.nodes)-1, indpb=0.2)
     toolbox.register("select", tools.selRoulette, fit_attr="fitness")
     # evaluate the population
     # print("  Evaluated %i individuals" % len(pop))
@@ -155,7 +182,7 @@ def community_detection(graph,population=300,generation=30,r=1.5):
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         for ind in invalid_ind:
             ind.subset = find_subsets(ind, graph)
-            ind.fitness.values = toolbox.evaluate(chrom = ind, subsets=ind.subset)
+            ind.fitness.values = toolbox.evaluate(graph.subgraph(ind), subsets=ind.subset)
             # print(ind.fitness.values)
 
         # print("  Evaluated %i individuals" % len(invalid_ind))
@@ -180,34 +207,7 @@ def community_detection(graph,population=300,generation=30,r=1.5):
     best_ind = tools.selBest(pop, 1, fit_attr="fitness")[0]
     print("Best individual is %s, %s" % (best_ind.subset, best_ind.fitness.values))
 
-    unique_coms = np.unique(list(best_ind))
-    cmap = {
-        0: 'tab:maroon',
-        1: 'tab:teal',
-        2: 'tab:black',
-        3: 'tab:orange',
-        4: 'tab:green',
-        5: 'tab:yellow'
-    }
-    node_cmap = {}
-    # node_cmap = [cmap[i] for i in range(len(best_ind.subset))]
-    for i, nodes in enumerate(best_ind.subset):
-        for node in nodes:
-            node_cmap[node] = cmap[i]
-
-    print(node_cmap)
-
-    Graph(graph,
-          node_color=node_cmap, node_edge_width=0, edge_alpha=0.1,
-          node_layout='community', node_layout_kwargs=dict(node_to_community=best_ind.subset),
-          edge_layout='bundled', edge_layout_kwargs=dict(k=2000),
-          )
-    # {node for node in nodes): cmap[n_index] for n_index, nodes in enumerate(best_ind.subset)}
-    # print([n for n in node_color])
-    # print(node_cmap)
-    # pos = nx.spring_layout(graph)
-    # nx.draw(graph, pos, node_size=75, alpha=0.8, node_color=list(node_cmap), with_labels=True)
-    plt.show()
+    draw_communities(best_ind.subset, graph, title="communities")
 
 
         # offspring.fitness.values = toolbox.evaluate(offspring, find_subsets(offspring))
@@ -250,7 +250,10 @@ def find_subsets(chrom, G: nx.Graph, to_skip=None):
     :param chrom:
     :return:
     """
-
+    # sub = G.subgraph(chrom).edges.intersection(set(itertools.combinations(chrom, 2)))
+    # sub = list(set(G.subgraph(chrom).edges).intersection(set(itertools.combinations(chrom, 2))))
+    # sub = [set(x) for x in sub]
+    # print(itertools.combinations(chrom, 2))
     sub = [{x, chrom[x]} for x in range(len(chrom))]
     # print(sub)
     result = sub
@@ -430,6 +433,41 @@ def find_subsets(chrom, G: nx.Graph, to_skip=None):
 #                 if subsets[nodes[i]] == subsets[nodes[j]]])
 #     return Q / M
 
+def new_modularity(network: nx.Graph, subsets:list):
+    # for i in range(len(subsets)):
+    #     for node in subsets[i]:
+    #         network.nodes[node]['community'] = i
+    weight = 'weight'
+    resolution = 1
+    # directed = network.is_directed()
+    out_degree = in_degree = dict(network.degree(weight=weight))
+    deg_sum = sum(out_degree.values())
+    m = deg_sum / 2
+    norm = 1 / deg_sum ** 2
+
+    def community_contribution(community):
+        comm = set(community)
+        L_c = sum(wt for u, v, wt in network.edges(comm, data=weight, default=1) if v in comm)
+        out_degree_sum = sum(out_degree[u] for u in comm.intersection(out_degree.keys()))
+        in_degree_sum = out_degree_sum
+
+        return L_c / m - resolution * out_degree_sum * in_degree_sum * norm
+
+    return (sum(map(community_contribution, subsets)),)
+    # Adj = nx.to_scipy_sparse_matrix(network).astype(float)
+    # # A = nx.to_scipy_sparse_matrix(G).astype(float)
+    # # for undirected graphs, in and out treated as the same thing
+    # out_degree = in_degree = dict(network.degree(weight='weight'))
+    # deg_sum = sum(out_degree.values())
+    # M = 2. * (network.number_of_edges())
+    # print("Calculating modularity for undirected graph")
+    # nodes = list(network.nodes)
+    # Q = np.sum([Adj[i, j] - (in_degree[nodes[i]] * \
+    #             out_degree[nodes[j]] / M) \
+    #             for i, j in product(range(len(nodes)), range(len(nodes)))])
+    # # print(Q/M)
+    # return Q / M
+
 def getModularity(chrom,subsets,r,Adj):
     """
     :param chrom: chromosome of the individual
@@ -438,6 +476,8 @@ def getModularity(chrom,subsets,r,Adj):
     :param Adj: adjacency matrix of the graph
     :return:
     """
+
+
     matrix = Adj.toarray()
     CS=0
     # print(subsets)
@@ -470,17 +510,25 @@ def mutation(chrom,Adj,mutation_rate):
     """
 
     if np.random.random_sample() < mutation_rate:
-        length = len(chrom)
-        mask = np.random.randint(2, size=length)
-        mutated_chrom = np.zeros(length, dtype=int)
-        for i in range(len(mask)):
-            if mask[i] == 1:
-                mutated_chrom[i] = chrom[i]
-            else:
-                mutated_chrom[i] = np.random.randint(0, length)
-        return mutated_chrom
-    else:
-        return chrom
+        chrom = chrom
+        neighbor = []
+        while len(neighbor) < 2:
+            mutant =  np.random.randint(1, len(chrom))
+            # print(Adj[mutant])
+            row = Adj[mutant].toarray()[0]
+            # print(row)
+            neighbor = [i for i in range(len(row)) if row[i] == 1]
+
+            if len(neighbor) > 1:
+
+                neighbor.remove(chrom[mutant])
+                to_change = int(np.floor(np.random.random_sample() * (len(neighbor))))
+                chrom[mutant] = neighbor[to_change]
+                neighbor.append(chrom[mutant])
+                # sys.exit()
+    return chrom
+
+
 # n = 10
 # G = generate_network(n)
 # print(nx.info(G))
@@ -494,14 +542,23 @@ def mutation(chrom,Adj,mutation_rate):
 # graph = nx.complete_graph(22)
 graph = nx.karate_club_graph()
 pos = nx.spring_layout(graph)
-nx.draw(graph, pos, node_size=75, alpha=0.8)
+nx.draw_networkx(graph, pos, node_size=75, alpha=0.8)
 plt.show()
 nodes = graph.nodes
 edges = graph.edges
 i = 0
+
+communities_louvain = nx_comm.louvain_communities(graph)
+communities_label_propagation = nx_comm.label_propagation_communities(graph)
+communities_fast_greedy = nx_comm.greedy_modularity_communities(graph)
+draw_communities(communities_louvain, graph, title='Louvain')
+draw_communities(communities_label_propagation, graph, title='Label_Propagation')
+draw_communities(communities_fast_greedy, graph, title='Fast_Greedy')
+
+
 start = time.time()
 try:
-    while i < 10:
+    while i < 2:
         interval = time.time()
         community_detection(graph)
         print("Time taken: ", time.time()-interval)
