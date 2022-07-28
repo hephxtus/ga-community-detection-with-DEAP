@@ -10,6 +10,9 @@ import networkx as nx
 from deap import base, creator, tools
 from neo4j import GraphDatabase
 import matplotlib.pyplot as plt
+from cdlib import algorithms
+import igraph
+import leidenalg as la
 import networkx.algorithms.community as nx_comm
 from networkx import Graph
 
@@ -69,6 +72,7 @@ creator.create("Individual", np.ndarray, fitness=creator.FitnessMax, subset=list
 # create the toolbox
 toolbox = base.Toolbox()
 
+
 def draw_communities(communities,G, title='TEST'):
     plt.clf()
     node_cmap = []
@@ -78,7 +82,7 @@ def draw_communities(communities,G, title='TEST'):
         2: 'tab:blue',
         3: 'tab:orange',
         4: 'tab:green',
-        5: 'tab:yellow'
+        5: 'yellow'
     }
     communities = list(communities)
     # print(list(map(lambda x: cmap[communities.index(x)], communities)))
@@ -92,11 +96,13 @@ def draw_communities(communities,G, title='TEST'):
     print(communities)
     for key in range(len(communities)):
         sub_graph = G.subgraph(communities[key])
-        nx.draw_networkx(sub_graph, pos=nx.spring_layout(sub_graph), node_color=cmap[key], node_size=100)
+        nx.draw_networkx(sub_graph, pos=nx.circular_layout(graph), node_color=cmap[key], node_size=50)
     plt.annotate(f'Modularity: {modularity}', xy=(0.5, 0.05), xycoords='figure fraction', horizontalalignment='center',)
     plt.savefig(title)
 
-def community_detection(graph,population=300,generation=30,r=1.5):
+
+
+def community_detection(pop, generation=30, population=100):
     """
     :param nodes: number of nodes in the network
     :param edges: number of edges in the network
@@ -105,129 +111,69 @@ def community_detection(graph,population=300,generation=30,r=1.5):
     :param r: crossover rate
     :return:
     """
-    CXPB, MUTPB = 0.8, 0.2
-    # create the graph
-    # graph=nx.Graph()
-    # graph.add_nodes_from(nodes)
-    # graph.add_edges_from(edges)
-    Adj = nx.adjacency_matrix(graph)
-    nodes_length = len(graph.nodes())
+    global convergence, convergence_max, convergence_min
 
-    # print(nx.louvain_partitions(graph))
-    toolbox.register("chromosomes", generate_chrom, nodes_length)
-    toolbox.register("subsets", find_subsets, toolbox.chromosomes())
-    toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.chromosomes, nodes_length)
-    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-    toolbox.register("evaluate", new_modularity)
-    # toolbox.register("evaluate", nx_comm.modularity, G=graph, weight='weight', resolution=1.0)
 
-    pop = toolbox.population(n=population)
-    # toolbox.register("deme", tools.initRepeat, list, toolbox.individual)
-    #
-    # DEME_SIZES = 10, 50, 100
-    # population = [toolbox.deme(n=i) for i in DEME_SIZES]
-    ind = toolbox.individual()
-    # print(ind)
-    # print(ind)
-    # print(toolbox.evaluate(ind, find_subsets(ind)))
-    # ind.fitness.values = toolbox.evaluate(ind, find_subsets(ind))
-    # print(ind.fitness.valid)
-    # print(pop)
 
     for ind in pop:
-        # print(ind)
-        ind.subset = find_subsets(ind, G=graph)
-        # ind.subset = graph.subgraph(ind)
-        # print(ind.subset)
-        # i = toolbox.evaluate(communities=ind.subset)
-        # print(i)
-        # print(ind.subset)
-        # print(nx_comm.modularity(graph, ind.subset))
-        # print(new_modularity(graph.subgraph(ind), ind.subset))
-        ind.fitness.values = toolbox.evaluate(graph.subgraph(ind), subsets=ind.subset)
+        ind.subset = toolbox.subsets(chrom=ind)
+        ind.fitness.values = (toolbox.evaluate(communities=ind.subset),)
 
-        # print(ind.fitness.values)
-        # print(community_score(ind, ind.subset, r=r, Adj=Adj))
-
-
-    toolbox.register("mate", tools.cxOnePoint)
-    toolbox.register("mutate", tools.mutUniformInt, low=0, up=len(graph.nodes)-1, indpb=0.2)
-    toolbox.register("select", tools.selRoulette, fit_attr="fitness")
-    # evaluate the population
-    # print("  Evaluated %i individuals" % len(pop))
-
+    pop.sort(key=lambda x: x.fitness, reverse=True)
     # do the evolution
     for g in range(generation):
+        elites = pop[:int(population*.1)]
         size = int(np.floor(population * 0.9))
-        pop.sort(key=lambda x: x.fitness, reverse=True)
+        # pop = pop[:size]
         offspring = toolbox.select(pop, size)
         offspring = list(map(toolbox.clone, offspring))
-
+        # convergence.append(offspring[0].fitness.values[0])
+        x = 0
+        temppop = []
         for child1, child2 in zip(offspring[::2], offspring[1::2]):
-            toolbox.mate(child1, child2)
-            toolbox.mutate(child1)
-            toolbox.mutate(child2)
-            # print(child1, child2)
+            toolbox.mate(ind1=child1, ind2=child2)
+            toolbox.mutate(chrom=child1)
+            toolbox.mutate(chrom=child2)
 
             # fitness values of the children
             # must be recalculated later
             del child1.fitness.values
             del child2.fitness.values
             # cross two individuals with probability CXPB
-        # for mutant in offspring:
-        #     toolbox.mutate(mutant)
-        #     del mutant.fitness.values
+            # for mutant in offspring:
+
 
         # Evaluate the individuals with an invalid fitness
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         for ind in invalid_ind:
-            ind.subset = find_subsets(ind, graph)
-            ind.fitness.values = toolbox.evaluate(graph.subgraph(ind), subsets=ind.subset)
-            # print(ind.fitness.values)
+            ind.subset = toolbox.subsets(chrom=ind)
+            ind.fitness.values = (toolbox.evaluate(communities=ind.subset), )
 
-        # print("  Evaluated %i individuals" % len(invalid_ind))
-
+        offspring += elites
         # The population is entirely replaced by the offspring
         pop[:] = offspring
+        pop.sort(key=lambda x: x.fitness, reverse=True)
+        convergence[g] = convergence[g] + pop[0].fitness.values[0]
 
-        # Gather all the fitnesses in one list and print the stats
-    fits = [ind.fitness.values[0] for ind in pop]
 
-    length = len(pop)
-    mean = sum(fits) / length
-    sum2 = sum(x * x for x in fits)
-    std = abs(sum2 / length - mean ** 2) ** 0.5
+    if max(convergence) < convergence_max:
+        convergence_max = max(convergence)
+    if min(convergence) > convergence_min:
+        convergence_min = min(convergence)
 
-    print("  Min %s" % min(fits))
-    print("  Max %s" % max(fits))
-    print("  Avg %s" % mean)
-    print("  Std %s" % std)
 
-    # print("-- End of (successful) evolution --")
     best_ind = tools.selBest(pop, 1, fit_attr="fitness")[0]
-    print("Best individual is %s, %s" % (best_ind.subset, best_ind.fitness.values))
 
-    draw_communities(best_ind.subset, graph, title="communities")
+    return best_ind.fitness.values
 
-
-        # offspring.fitness.values = toolbox.evaluate(offspring, find_subsets(offspring))
-        # pop[:] = toolbox.select(pop + [offspring])
-        # print("  Evaluated %i individuals" % len(pop))
-        # fits = [ind.fitness.values[0] for ind in pop]
-        # length = len(pop)
-        # mean = sum(fits) / length
-        # sum2 = sum(x * x for x in fits)
-        # std = abs(sum2 / length - mean ** 2) ** 0.5
-        # print("  Min %s" % min(fits))
-        # print("  Max %s" % max(fits))
-        # print("  Avg %s" % mean)
-        # print("  Std %s" % std)
-
-
-
-def generate_chrom(nodes_length):
-    rand = np.random.randint(0, nodes_length)
-    return rand
+def generate_chrom(nodes, Adj):
+    chrom = np.array([], dtype=int)
+    for x in nodes:
+        rand = np.random.choice(nodes)
+        while Adj[x, rand] < 1:
+            rand = np.random.choice(nodes)
+        chrom = np.append(chrom, rand)
+    return creator.Individual(chrom)
 
 def merge_subsets(sub):
     arr = []
@@ -243,259 +189,32 @@ def merge_subsets(sub):
     return arr
 
 
-def find_subsets(chrom, G: nx.Graph, to_skip=None):
+def find_subsets(G, chrom):
     """
     Finds all subsets of a given chromsome
 
     :param chrom:
     :return:
     """
-    # sub = G.subgraph(chrom).edges.intersection(set(itertools.combinations(chrom, 2)))
-    # sub = list(set(G.subgraph(chrom).edges).intersection(set(itertools.combinations(chrom, 2))))
-    # sub = [set(x) for x in sub]
-    # print(itertools.combinations(chrom, 2))
-    sub = [{x, chrom[x]} for x in range(len(chrom))]
-    # print(sub)
-    result = sub
-    i = 0
-    while i < len(result):
-        candidate = merge_subsets(result)
-        if candidate != result:
-            result = candidate
+    temp = list(chrom[:])
+    sub = []
+    for x in range(len(chrom)):
+        neighbours = set(G.neighbors(x))
+        intersect = list(neighbours.intersection(temp))
+        if len(intersect) == 0 or (len(intersect) == 1 and {x, intersect[0]} in sub):
+            sub.append({x,x})
         else:
-            break
+            node = np.random.choice(intersect)
+            sub.append({x, node})
+            temp.remove(node)
+
+    result = sub
+    candidate = merge_subsets(result)
+    while candidate != result:
         result = candidate
-        i += 1
-    # print(result)
+        candidate = merge_subsets(result)
+
     return result
-    # print(chrom)
-    # sub = set(itertools.combinations(chrom, 2))
-    # sub = list(G.subgraph(chrom).edges)
-    # sub = list(H.intersection(sub))
-
-    # for i in range(len(sub)):
-    #     sub[i] = set(sub[i])
-    # # print(sub)
-    # result = sub
-    # i = 0
-    # to_skip = []
-    # while i < len(result):
-    #     # print("i:", i)
-    #     # print(result)
-    #     candidate, to_skip = merge_subsets(result, to_skip)
-    #     if candidate != result:
-    #         result = candidate
-    #     else:
-    #         break
-    #     result = candidate
-    #     i += 1
-    # print(result)
-
-    # H = set(G.nodes()).difference(chrom)
-    # print(to_skip)
-    # for h in H:
-    #     result.append({h})
-    # print(result)
-    return result
-    # if to_skip is None:
-    #     to_skip = set()
-    # remainder = set(x for x in range(len(chrom)))
-    # if len(to_skip) > 0:
-    #     to_remove = remainder.intersection(to_skip)
-    #     remainder = remainder.difference(to_remove)
-    # subs = []
-    # sub = []
-    #
-    # for x in range(len(chrom)):
-    #     initial = None
-    #     neighbours = set(G.neighbors(chrom[x]))
-    #     if len(to_skip) > 0:
-    #         to_remove = neighbours.intersection(to_skip)
-    #         neighbours = neighbours.difference(to_remove)
-    #     if x in neighbours:
-    #         initial = (x, chrom[x])
-    #     elif neighbours == set():
-    #         initial = (chrom[x],)
-    #     else:
-    #         initial = (random.choice(list(neighbours)), chrom[x])
-    #     sub.append(initial)
-    # # print(sub)
-    # # sub = [(x, chrom[x]) for x in range(len(chrom))]
-    # # print(sub)
-    # # print(chrom)
-    # for n in chrom:
-    #     if n in to_skip:
-    #         # print("skipping:", n)
-    #         continue
-    #     connections = G.edges(n)
-    #     new = set()
-    #     # print(to_skip)
-    #     for e in sub:
-    #         if len(e) == 1:
-    #             continue
-    #         if e in connections:
-    #
-    #             if (e[1] not in to_skip or e[1] == n) and (e[0] not in to_skip or e[0] == n):
-    #             # print(e)
-    #                 new = new | set(e)
-    #                 to_skip = to_skip | set(e)
-    #             elif e[1] not in to_skip or e[1] ==n:
-    #                 new = new | {e[1]}
-    #                 to_skip = to_skip | {e[1]}
-    #             elif e[0] not in to_skip or e[0] == n:
-    #                 new = new | {e[0]}
-    #                 to_skip = to_skip | {e[0]}
-    #
-    #     # print(new)
-    #     # print("----")
-    #     if new != set():
-    #         subs.append(new)
-    #         remainder= remainder - new
-    # print("1st remaining:", remainder) if remainder != set() else print("no remaining")
-    # #
-    # print("to skip:", to_skip)
-    # # print("subs", subs)
-    # if remainder != set():
-    #     if len(remainder) == 1:
-    #         # print("remainder:", remainder)
-    #         subs.append(remainder)
-    #     else:
-    #         new = find_subsets(chrom=list(remainder), G=G, to_skip=to_skip)
-    #         subs.extend(new)
-    #     # i = 0
-    #     # while i < len(temp):
-    #     #     n = temp.pop()
-    #     #     print(list(G.neighbors(n)))
-    #     #     print(subs)
-    #     #     print(temp)
-    #     #     for x in range(len(subs)):
-    #     #         for s in sub:
-    #     #             if s in G.neighbors(n):
-    #     #                 print(s)
-    #     #                 subs[x] = subs[x] | {n}
-    #     #                 break
-    # remainder = remainder
-    # print("2nd remaining:", remainder) if remainder != set() else print("no remaining")
-    # print(subs)
-    return subs
-    # for t in temp:
-    #     # print(sub[t][0], sub[t][1])
-    #     for i in range(len(subs)):
-    #         s = subs[i]
-    #         if sub[t][1] in s:
-    #             s = s | {sub[t][0]}
-    #             # print("adding:", sub[t][1], "to", s)
-    #             subs[i] = s
-
-    return subs
-        # new = set()
-        # for s in sub:
-        #     if s in G.edges(n) and s not in to_skip:
-        #         new = new | set(s)
-        #         to_skip.append(s)
-        # if new != set():
-        #     subs.append(new)
-
-    # print(subs)
-    # print(list(G.edges(chrom[0])))
-    # print([{x, chrom[x]} for x in range(len(chrom))])
-    #
-    # result = sub
-    # i = 0
-    # to_skip = []
-    # while i < len(result):
-    #     print("i:", i)
-    #     print(result)
-    #     candidate, to_skip = merge_subsets(result, to_skip)
-    #     if candidate != result:
-    #         result = candidate
-    #     else:
-    #         break
-    #     result = candidate
-    #     i += 1
-    # print(result)
-    # return result
-
-# def getModularity(chrom, network, subsets):
-#     Q = 0
-#     G = network.copy()
-#     nx.set_edge_atAtributes(G, {e: 1 for e in G.edges}, 'weight')
-#     A = nx.to_scipy_sparse_matrix(G).astype(float)
-#     # for undirected graphs, in and out treated as the same thing
-#     out_degree = in_degree = dict(nx.degree(G))
-#     M = 2. * (G.number_of_edges())
-#     print("Calculating modularity for undirected graph")
-#
-#     nodes = list(G)
-#     Q = np.sum([A[i, j] - in_degree[nodes[i]] * \
-#                 out_degree[nodes[j]] / M \
-#                 for i, j in product(range(len(nodes)), range(len(nodes)))
-#                 if subsets[nodes[i]] == subsets[nodes[j]]])
-#     return Q / M
-
-def new_modularity(network: nx.Graph, subsets:list):
-    # for i in range(len(subsets)):
-    #     for node in subsets[i]:
-    #         network.nodes[node]['community'] = i
-    weight = 'weight'
-    resolution = 1
-    # directed = network.is_directed()
-    out_degree = in_degree = dict(network.degree(weight=weight))
-    deg_sum = sum(out_degree.values())
-    m = deg_sum / 2
-    norm = 1 / deg_sum ** 2
-
-    def community_contribution(community):
-        comm = set(community)
-        L_c = sum(wt for u, v, wt in network.edges(comm, data=weight, default=1) if v in comm)
-        out_degree_sum = sum(out_degree[u] for u in comm.intersection(out_degree.keys()))
-        in_degree_sum = out_degree_sum
-
-        return L_c / m - resolution * out_degree_sum * in_degree_sum * norm
-
-    return (sum(map(community_contribution, subsets)),)
-    # Adj = nx.to_scipy_sparse_matrix(network).astype(float)
-    # # A = nx.to_scipy_sparse_matrix(G).astype(float)
-    # # for undirected graphs, in and out treated as the same thing
-    # out_degree = in_degree = dict(network.degree(weight='weight'))
-    # deg_sum = sum(out_degree.values())
-    # M = 2. * (network.number_of_edges())
-    # print("Calculating modularity for undirected graph")
-    # nodes = list(network.nodes)
-    # Q = np.sum([Adj[i, j] - (in_degree[nodes[i]] * \
-    #             out_degree[nodes[j]] / M) \
-    #             for i, j in product(range(len(nodes)), range(len(nodes)))])
-    # # print(Q/M)
-    # return Q / M
-
-def getModularity(chrom,subsets,r,Adj):
-    """
-    :param chrom: chromosome of the individual
-    :param subsets: connected components of the graph
-    :param r: crossover rate
-    :param Adj: adjacency matrix of the graph
-    :return:
-    """
-
-
-    matrix = Adj.toarray()
-    CS=0
-    # print(subsets)
-    for s in subsets:
-
-        submatrix = np.zeros((len(chrom),len(chrom)),dtype=int)
-        for i in s:
-            for j in s:
-                # print(s)
-                submatrix[i][j]=matrix[i][j]
-        M=0
-        v=0
-        for row in list(s):
-            row_mean = np.sum(submatrix[row])/len(s)
-            v+=np.sum(submatrix[row])
-            M+=(row_mean**r)/len(s)
-        CS+=M*v
-    return CS,
 
 def mutation(chrom,Adj,mutation_rate):
     """
@@ -513,58 +232,162 @@ def mutation(chrom,Adj,mutation_rate):
         chrom = chrom
         neighbor = []
         while len(neighbor) < 2:
-            mutant =  np.random.randint(1, len(chrom))
-            # print(Adj[mutant])
+            mutant =  np.random.randint(0, len(chrom))
             row = Adj[mutant].toarray()[0]
-            # print(row)
-            neighbor = [i for i in range(len(row)) if row[i] == 1]
+            neighbor = [i for i in range(len(row)) if row[i] > 0]
 
             if len(neighbor) > 1:
-
                 neighbor.remove(chrom[mutant])
                 to_change = int(np.floor(np.random.random_sample() * (len(neighbor))))
                 chrom[mutant] = neighbor[to_change]
                 neighbor.append(chrom[mutant])
-                # sys.exit()
     return chrom
 
-
-# n = 10
-# G = generate_network(n)
-# print(nx.info(G))
-
-# visualize graph
-
-
-# nodes = [0,1,2,3,4,5,6,7,8,9,10]
-# edges = [(0, 1), (0, 4), (1, 2), (2, 3), (1, 3), (3, 0), (0, 2), (4, 5), (5, 6), (6, 7), (10, 8), (10, 9), (8, 9),
-#          (8, 7), (9, 7), (7, 10)]
-# graph = nx.complete_graph(22)
-graph = nx.karate_club_graph()
+# graph = nx.karate_club_graph()
+graph = nx.read_gml('database/dolphins.gml')
+labels = graph.nodes()
+graph = nx.convert_node_labels_to_integers(graph, first_label=0, ordering='default', label_attribute=None)
 pos = nx.spring_layout(graph)
-nx.draw_networkx(graph, pos, node_size=75, alpha=0.8)
-plt.show()
+
+# nx.draw_networkx(graph, pos, node_size=75, alpha=0.8)
+# plt.show()
 nodes = graph.nodes
 edges = graph.edges
 i = 0
+max_iterations = 30
 
-communities_louvain = nx_comm.louvain_communities(graph)
-communities_label_propagation = nx_comm.label_propagation_communities(graph)
-communities_fast_greedy = nx_comm.greedy_modularity_communities(graph)
-draw_communities(communities_louvain, graph, title='Louvain')
-draw_communities(communities_label_propagation, graph, title='Label_Propagation')
-draw_communities(communities_fast_greedy, graph, title='Fast_Greedy')
+fits = []
+times = []
+while i < max_iterations:
+    start = time.time()
+    communities_louvain = list(nx_comm.label_propagation_communities(graph))
+    fits.append( nx_comm.modularity(graph, communities_louvain))
+    times.append(time.time() - start)
+    i += 1
+mean = float(sum(fits)/len(fits))
+sum2 = sum([x * x for x in fits])
+std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
+print("label propogation min", min(fits))
+print("label propogation max", (max(fits)))
+print("label propogation mean:", mean)
+print("label propogation std:", std)
+print("label propogation", "Time taken: ", sum(times)/len(times))
 
+fits = []
+times = []
+i = 0
+while i < max_iterations:
+    start = time.time()
+    communities_louvain = nx_comm.louvain_communities(graph)
+    fits.append( nx_comm.modularity(graph, communities_louvain))
+    times.append(time.time() - start)
+    i += 1
+mean = float(sum(fits)/len(fits))
+sum2 = sum([x * x for x in fits])
+std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
+print("louvain min", min(fits))
+print("louvain max", (max(fits)))
+print("louvain mean:", mean)
+print("louvain std:", std)
+print("louvain", "Time taken: ", sum(times)/len(times))
+
+
+fits = []
+times = []
+i = 0
+while i < max_iterations:
+    start = time.time()
+    communities_louvain = nx_comm.greedy_modularity_communities(graph)
+    fits.append( nx_comm.modularity(graph, communities_louvain))
+    times.append(time.time() - start)
+    i += 1
+mean = float(sum(fits)/len(fits))
+sum2 = sum([x * x for x in fits])
+std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
+print("greedy modularity min", min(fits))
+print("greedy modularity max", (max(fits)))
+print("greedy modularity mean:", mean)
+print("greedy modularity std:", std)
+print("greedy modularity", "Time taken: ", sum(times)/len(times))
+
+fits = []
+times = []
+i = 0
+while i < max_iterations:
+    """implement leiden community detection"""
+    start = time.time()
+    communities_leiden = algorithms.leiden(graph)
+    # print(communities_leiden.communities)
+    fits.append(nx_comm.modularity(graph, communities_leiden.communities))
+    times.append(time.time() - start)
+    i += 1
+mean = float(sum(fits)/len(fits))
+sum2 = sum([x * x for x in fits])
+std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
+print("leiden min", min(fits))
+print("leiden max", (max(fits)))
+print("leiden mean:", mean)
+print("leiden std:", std)
+print("leiden", "Time taken: ", sum(times)/len(times))
 
 start = time.time()
+fits = []
+times = []
+i = 0
+
+fig = plt.figure()
+plt.xlabel('Generation')
+plt.ylabel('Modularity')
+plt.title('Modularity Convergence')
+convergence_max, convergence_min = 1, 0
+
+CXPB, MUTPB = 0.8, 0.2
+Adj = nx.adjacency_matrix(graph)
+nodes = graph.nodes()
+nodes_len = len(nodes)
+print(nodes_len)
+
+toolbox.register("individual", generate_chrom, nodes=nodes, Adj=Adj)
+toolbox.register("subsets", find_subsets, G=graph)
+toolbox.register("population", tools.initRepeat, list, toolbox.individual, n=100)
+toolbox.register("evaluate", nx_comm.modularity, G=graph, weight='weight', resolution=1.0)
+
+
+
+toolbox.register("mate", tools.cxUniform, indpb=CXPB)
+toolbox.register("mutate", mutation, Adj=Adj, mutation_rate=MUTPB)
+toolbox.register("select", tools.selRoulette, fit_attr="fitness")
+
+convergence = [0] * max_iterations
 try:
-    while i < 2:
-        interval = time.time()
-        community_detection(graph)
-        print("Time taken: ", time.time()-interval)
+    while i < max_iterations:
         i += 1
+        interval = time.time()
+        pop = toolbox.population()
+        scores = community_detection(pop)
+        fits.append(scores[0])
+        # print("Time taken: ", time.time()-interval)
     end = time.time()
-    print("average: %d" % ((end-start)/i))
 except KeyboardInterrupt:
     end = time.time()
+finally:
+
+
     print("average: %d" % ((end - start) / i))
+    mean = float(sum(fits) / len(fits))
+    sum2 = sum([x * x for x in fits])
+    std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
+    print("GADeap min", min(fits))
+    print("GADeap max", (max(fits)))
+    print("GADeap mean:", mean)
+    print("GADeap std:", std)
+    print("final convergence=", convergence)
+    # plt.ylim(convergence_max+0.01, convergence_min-0.01)
+    for c in range(len(convergence)):
+        convergence[c] = convergence[c] / i
+
+    plt.plot(convergence, zorder=i)
+    plt.show()
+    draw_communities(communities=scores[1], graph=graph)
+
+# check degree and see if can be moved
