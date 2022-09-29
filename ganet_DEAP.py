@@ -1,4 +1,5 @@
 import itertools
+import pickle
 import random
 import sys
 import time
@@ -73,7 +74,7 @@ creator.create("Individual", np.ndarray, fitness=creator.FitnessMax, subset=list
 toolbox = base.Toolbox()
 
 
-def draw_communities(communities,G, title='TEST'):
+def draw_communities(communities, G, title='TEST'):
     plt.clf()
     node_cmap = []
     cmap = {
@@ -82,9 +83,17 @@ def draw_communities(communities,G, title='TEST'):
         2: 'tab:blue',
         3: 'tab:orange',
         4: 'tab:green',
-        5: 'yellow'
+        5: 'yellow',
+        6: 'tab:purple',
+        7: 'tab:brown',
+        8: 'tab:pink',
+        9: 'tab:olive',
+        10: 'tab:cyan',
+        11: 'tab:gray',
+
     }
     communities = list(communities)
+    print(communities)
     # print(list(map(lambda x: cmap[communities.index(x)], communities)))
     # nx.draw_networkx(G, node_color=list(map(lambda x: cmap[communities.index(x)], communities)), with_labels=True)
     for i, nodes in enumerate(communities):
@@ -96,10 +105,10 @@ def draw_communities(communities,G, title='TEST'):
     print(communities)
     for key in range(len(communities)):
         sub_graph = G.subgraph(communities[key])
-        nx.draw_networkx(sub_graph, pos=nx.circular_layout(graph), node_color=cmap[key], node_size=50)
-    plt.annotate(f'Modularity: {modularity}', xy=(0.5, 0.05), xycoords='figure fraction', horizontalalignment='center',)
+        nx.draw_networkx(sub_graph, pos=nx.spring_layout(G), node_color=cmap[key], with_labels=True)
+    plt.annotate(f'Modularity: {modularity}', xy=(0.5, 0.05), xycoords='figure fraction',
+                 horizontalalignment='center', )
     plt.savefig(title)
-
 
 
 def community_detection(pop, generation=30, population=100):
@@ -113,8 +122,6 @@ def community_detection(pop, generation=30, population=100):
     """
     global convergence, convergence_max, convergence_min
 
-
-
     for ind in pop:
         ind.subset = toolbox.subsets(chrom=ind)
         ind.fitness.values = (toolbox.evaluate(communities=ind.subset),)
@@ -122,7 +129,7 @@ def community_detection(pop, generation=30, population=100):
     pop.sort(key=lambda x: x.fitness, reverse=True)
     # do the evolution
     for g in range(generation):
-        elites = pop[:int(population*.1)]
+        elites = pop[:int(population * .1)]
         size = int(np.floor(population * 0.9))
         # pop = pop[:size]
         offspring = toolbox.select(pop, size)
@@ -142,12 +149,11 @@ def community_detection(pop, generation=30, population=100):
             # cross two individuals with probability CXPB
             # for mutant in offspring:
 
-
         # Evaluate the individuals with an invalid fitness
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         for ind in invalid_ind:
             ind.subset = toolbox.subsets(chrom=ind)
-            ind.fitness.values = (toolbox.evaluate(communities=ind.subset), )
+            ind.fitness.values = (toolbox.evaluate(communities=ind.subset),)
 
         offspring += elites
         # The population is entirely replaced by the offspring
@@ -155,18 +161,31 @@ def community_detection(pop, generation=30, population=100):
         pop.sort(key=lambda x: x.fitness, reverse=True)
         convergence[g] = convergence[g] + pop[0].fitness.values[0]
 
-
     if max(convergence) < convergence_max:
         convergence_max = max(convergence)
     if min(convergence) > convergence_min:
         convergence_min = min(convergence)
 
-
     best_ind = tools.selBest(pop, 1, fit_attr="fitness")[0]
 
-    return best_ind.fitness.values
+    # return best_ind.fitness.values
+    # return be
+    print("Best individual is %s, %s" % (best_ind, best_ind.fitness.values))
+    return best_ind
 
-def generate_chrom(nodes, Adj):
+
+def calculate_centrality(G):
+    """
+    use
+    :param G: networkx graph
+    :return: (node, centrality) pairings
+    """
+    centrality = nx.eigenvector_centrality(G)
+    return centrality
+
+
+
+def generate_chrom(nodes, Adj, centrality):
     chrom = np.array([], dtype=int)
     for x in nodes:
         rand = np.random.choice(nodes)
@@ -174,6 +193,16 @@ def generate_chrom(nodes, Adj):
             rand = np.random.choice(nodes)
         chrom = np.append(chrom, rand)
     return creator.Individual(chrom)
+
+def find_central_node(G, chrom):
+    """
+    Finds the node with the highest degree in the given chromsome
+
+    :param chrom:
+    :return:
+    """
+    degrees = G.degree(chrom)
+    return max(degrees, key=lambda x: x[1])[0]
 
 def merge_subsets(sub):
     arr = []
@@ -189,7 +218,7 @@ def merge_subsets(sub):
     return arr
 
 
-def find_subsets(G, chrom):
+def find_subsets(G, chrom, centrality):
     """
     Finds all subsets of a given chromsome
 
@@ -198,25 +227,72 @@ def find_subsets(G, chrom):
     """
     temp = list(chrom[:])
     sub = []
+    # while temp is not empty,
+    # find the node with the highest centrality in temp
+    # find all nodes immediately connected to it
+    # add the set of nodes to sub
+    # remove the nodes from temp
+    # get only nodes in temp
+    node_centralities = list(filter(lambda x: x[0] in temp, centrality))
+    # while temp:
+        # print(node_centralities)
+        # print(temp)
+        # # find the node with the highest centrality
+        # node = max(node_centralities, key=lambda x: x[1])[0]
+        # # remove the node from node centrality
+        # node_centralities = list(filter(lambda x: x[0] != node, node_centralities))
+        # # find all nodes immediately connected to it within temp
+        # neighbors = list(G.subgraph(temp).neighbors(node))
+        # # remove neighbours from node centralities
+        # node_centralities = list(filter(lambda x: x[0] not in neighbors, node_centralities))
+        # # add the set of nodes to sub
+        # #add node to neighbors
+        # neighbors.append(node)
+        # sub.append(set(neighbors))
+        # # remove the nodes from temp
+        # temp = list(set(temp) - set(neighbors))
     for x in range(len(chrom)):
         neighbours = set(G.neighbors(x))
         intersect = list(neighbours.intersection(temp))
         if len(intersect) == 0 or (len(intersect) == 1 and {x, intersect[0]} in sub):
-            sub.append({x,x})
+            sub.append({x, x})
         else:
-            node = np.random.choice(intersect)
+            # print list of nodes in node_centralities
+            # if node centrality does not intersect with intersect, print intersect
+            if not any(map(lambda n: n[0] in intersect, node_centralities)):
+                print("INTERSECT:", intersect)
+            node = max(list(filter(lambda n: n[0] in intersect, node_centralities)), key=lambda n: n[1])[0]
+
             sub.append({x, node})
+            # remove node from temp
             temp.remove(node)
+            # remove node from node_centralities
+            node_centralities = list(filter(lambda n: n[0] != node, node_centralities)) if node not in temp \
+                else node_centralities
 
     result = sub
     candidate = merge_subsets(result)
     while candidate != result:
         result = candidate
         candidate = merge_subsets(result)
-
     return result
 
-def mutation(chrom,Adj,mutation_rate):
+
+
+
+
+def find_closest_node(G, chrom):
+    """
+    Finds the node with the highest centrality by closeness in the given chromsome
+
+    :param chrom:
+    :return:
+    """
+    closeness = nx.closeness_centrality(G, list(chrom))
+    return max(closeness, key=lambda x: x[1])[0]
+
+
+def mutation(chrom, Adj, mutation_rate, G):
     """
     Mutation: The mutation operator that randomly change the value j of a i-th gene causes a useless exploration of the
             search space, because of the same above observations on node connections. Thus the possible values an allele
@@ -232,7 +308,9 @@ def mutation(chrom,Adj,mutation_rate):
         chrom = chrom
         neighbor = []
         while len(neighbor) < 2:
-            mutant =  np.random.randint(0, len(chrom))
+            # find node with highest centrality value in chrom
+            # mutant = max(chrom, key=lambda x: G.nodes[x]['centrality'])
+            mutant = find_central_node(G, chrom)
             row = Adj[mutant].toarray()[0]
             neighbor = [i for i in range(len(row)) if row[i] > 0]
 
@@ -242,6 +320,10 @@ def mutation(chrom,Adj,mutation_rate):
                 chrom[mutant] = neighbor[to_change]
                 neighbor.append(chrom[mutant])
     return chrom
+
+
+# set random seed
+np.random.seed(0)
 
 # graph = nx.karate_club_graph()
 graph = nx.read_gml('database/dolphins.gml')
@@ -261,36 +343,36 @@ times = []
 while i < max_iterations:
     start = time.time()
     communities_louvain = list(nx_comm.label_propagation_communities(graph))
-    fits.append( nx_comm.modularity(graph, communities_louvain))
+    fits.append(nx_comm.modularity(graph, communities_louvain))
     times.append(time.time() - start)
     i += 1
-mean = float(sum(fits)/len(fits))
+mean = float(sum(fits) / len(fits))
 sum2 = sum([x * x for x in fits])
 std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
 print("label propogation min", min(fits))
 print("label propogation max", (max(fits)))
 print("label propogation mean:", mean)
 print("label propogation std:", std)
-print("label propogation", "Time taken: ", sum(times)/len(times))
+print("label propogation", "Time taken: ", sum(times) / len(times))
 
 fits = []
 times = []
 i = 0
+
 while i < max_iterations:
     start = time.time()
     communities_louvain = nx_comm.louvain_communities(graph)
-    fits.append( nx_comm.modularity(graph, communities_louvain))
+    fits.append(nx_comm.modularity(graph, communities_louvain))
     times.append(time.time() - start)
     i += 1
-mean = float(sum(fits)/len(fits))
+mean = float(sum(fits) / len(fits))
 sum2 = sum([x * x for x in fits])
 std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
 print("louvain min", min(fits))
 print("louvain max", (max(fits)))
 print("louvain mean:", mean)
 print("louvain std:", std)
-print("louvain", "Time taken: ", sum(times)/len(times))
-
+print("louvain", "Time taken: ", sum(times) / len(times))
 
 fits = []
 times = []
@@ -298,17 +380,17 @@ i = 0
 while i < max_iterations:
     start = time.time()
     communities_louvain = nx_comm.greedy_modularity_communities(graph)
-    fits.append( nx_comm.modularity(graph, communities_louvain))
+    fits.append(nx_comm.modularity(graph, communities_louvain))
     times.append(time.time() - start)
     i += 1
-mean = float(sum(fits)/len(fits))
+mean = float(sum(fits) / len(fits))
 sum2 = sum([x * x for x in fits])
 std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
 print("greedy modularity min", min(fits))
 print("greedy modularity max", (max(fits)))
 print("greedy modularity mean:", mean)
 print("greedy modularity std:", std)
-print("greedy modularity", "Time taken: ", sum(times)/len(times))
+print("greedy modularity", "Time taken: ", sum(times) / len(times))
 
 fits = []
 times = []
@@ -321,19 +403,19 @@ while i < max_iterations:
     fits.append(nx_comm.modularity(graph, communities_leiden.communities))
     times.append(time.time() - start)
     i += 1
-mean = float(sum(fits)/len(fits))
+mean = float(sum(fits) / len(fits))
 sum2 = sum([x * x for x in fits])
 std = abs(sum2 / len(graph.nodes) - mean ** 2) ** 0.5
 print("leiden min", min(fits))
 print("leiden max", (max(fits)))
 print("leiden mean:", mean)
 print("leiden std:", std)
-print("leiden", "Time taken: ", sum(times)/len(times))
+print("leiden", "Time taken: ", sum(times) / len(times))
 
-start = time.time()
 fits = []
 times = []
 i = 0
+start = time.time()
 
 fig = plt.figure()
 plt.xlabel('Generation')
@@ -346,32 +428,33 @@ Adj = nx.adjacency_matrix(graph)
 nodes = graph.nodes()
 nodes_len = len(nodes)
 print(nodes_len)
-
-toolbox.register("individual", generate_chrom, nodes=nodes, Adj=Adj)
-toolbox.register("subsets", find_subsets, G=graph)
+centrality = calculate_centrality(graph).items()
+toolbox.register("individual", generate_chrom, nodes=nodes, Adj=Adj, centrality=centrality)
+toolbox.register("subsets", find_subsets, G=graph, centrality=centrality)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual, n=100)
 toolbox.register("evaluate", nx_comm.modularity, G=graph, weight='weight', resolution=1.0)
 
-
-
 toolbox.register("mate", tools.cxUniform, indpb=CXPB)
-toolbox.register("mutate", mutation, Adj=Adj, mutation_rate=MUTPB)
+toolbox.register("mutate", mutation, Adj=Adj, mutation_rate=MUTPB, G=graph)
 toolbox.register("select", tools.selRoulette, fit_attr="fitness")
 
-convergence = [0] * max_iterations
+# pickle.dump(toolbox, open("toolbox.p", "wb"))
+# toolbox = pickle.load(open("toolbox.p", "rb"))
+convergence = [0] * 30
 try:
     while i < max_iterations:
         i += 1
         interval = time.time()
         pop = toolbox.population()
         scores = community_detection(pop)
-        fits.append(scores[0])
+        print("SCORES:", scores)
+        fits.append(scores.fitness.values[0])
         # print("Time taken: ", time.time()-interval)
     end = time.time()
 except KeyboardInterrupt:
     end = time.time()
 finally:
-
+    print(fits)
 
     print("average: %d" % ((end - start) / i))
     mean = float(sum(fits) / len(fits))
@@ -383,11 +466,11 @@ finally:
     print("GADeap std:", std)
     print("final convergence=", convergence)
     # plt.ylim(convergence_max+0.01, convergence_min-0.01)
-    for c in range(len(convergence)):
+    for c, _ in enumerate(convergence):
         convergence[c] = convergence[c] / i
 
     plt.plot(convergence, zorder=i)
     plt.show()
-    draw_communities(communities=scores[1], graph=graph)
+    draw_communities(communities=scores.subset, G=graph)
 
 # check degree and see if can be moved
