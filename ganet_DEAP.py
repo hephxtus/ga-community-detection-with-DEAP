@@ -22,6 +22,9 @@ from sklearn.metrics import normalized_mutual_info_score, accuracy_score
 from sklearn.preprocessing import MultiLabelBinarizer
 
 import centrality_community_detection
+import community_detection
+from multiprocessing import Process
+from multiprocessing import Pool
 
 """
 implementation of the DEAP algorithm for community detection
@@ -58,7 +61,7 @@ Uniform Crossover: We used uniform crossover because it guarantees the maintenan
                     nodes in the social network in the child individual. In fact, because of the biased initialization, 
                     each individual in the population is safe,that is it has the property, that if a gene i contains a 
                     value j, then the edge (i, j) exists. Thus, given two safe parents, a random binary vector is 
-                    created. Uniform crossover then selects the genes where the vector is a 1 from the ﬁrst parent, and 
+                    created. Uniform crossover then selects the genes where the vector is a 1 from the ?rst parent, and 
                     the genes where the vector is a 0 from the second parent, and combines the genes to form the child. 
                     The child at each position i contains a value j coming from one of the two parents. 
                     Thus the edge (i, j) exists. This implies that from two safe parents a safe child is generated.
@@ -69,9 +72,14 @@ Mutation: The mutation operator that randomly change the value j of a i-th gene 
             safe mutated child in which each node is linked only with one of its neighbors. Given a network SN and the 
             graph G modelling it, GA-Net starts with a population initialized at random and repaired to produce safe 
             individuals. Every individual generates a graph structure in which each component is a connected subgraph of 
-            G.For a ﬁxed number of generations the genetic algorithm computes the ﬁtness function of each solution 
+            G.For a ?xed number of generations the genetic algorithm computes the ?tness function of each solution 
             member, and applies the specialized variation operators to produce the new population.
 """
+# BASE_DIR = os.path.join("/vol", "grid-solar", "sgeusers", "hodgesjose", "ga-community-detection-with-DEAP")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ALL_METRICS = {}
+fits = []
+convergence = [[0, 0]] * 100
 
 
 def draw_communities(communities, G, title='TEST', metrics={}):
@@ -90,9 +98,14 @@ def draw_communities(communities, G, title='TEST', metrics={}):
         9: 'tab:olive',
         10: 'tab:cyan',
         11: 'tab:gray',
+        12: 'black',
+        13: 'magenta',
+        14: 'cyan',
 
     }
     communities = list(communities)
+    if len(communities) > len(cmap):
+        return
     # print(list(map(lambda x: cmap[communities.index(x)], communities)))
     # nx.draw_networkx(G, node_color=list(map(lambda x: cmap[communities.index(x)], communities)), with_labels=True)
     for i, nodes in enumerate(communities):
@@ -111,11 +124,10 @@ def draw_communities(communities, G, title='TEST', metrics={}):
     #              horizontalalignment='center', )
     # plt.annotate(f'Centrality: {centrality}', xy=(0.5, 0.01),
     #                 xycoords='figure fraction', horizontalalignment='center', )
-    plt.savefig(f"output/{title}")
+    plt.savefig(f"{BASE_DIR}/output/{title}")
 
 
 def classify_communities(true, pred, nodes_list: list):
-
     classified = []
     for i, community in enumerate(pred):
         for node in community:
@@ -137,7 +149,7 @@ def classify_communities(true, pred, nodes_list: list):
     return classified
 
 
-def evaluate_run(G, pred, start_time = time.time(), true=None):
+def evaluate_run(G, pred, start_time=time.time(), true=None, max_iter=1):
     pred_labels = classify_communities(true=true, pred=pred, nodes_list=list(G.nodes))
     metrics = {}
     if true:
@@ -155,7 +167,7 @@ def evaluate_run(G, pred, start_time = time.time(), true=None):
     metrics['Modularity'] = nx_comm.modularity(G, pred)
     metrics['Centrality'] = centrality_community_detection.calc_ind_centrality(G, pred, weight='weight', centres=[])
 
-    metrics['Time'] = time.time() - start_time
+    metrics['Time'] = (time.time() - start_time) / max_iter
 
     return metrics
 
@@ -173,12 +185,18 @@ def calc_metric(metric: list) -> dict:
 def evaluate_fits(fits):
     # get all NMI scores
     metric_scores = {}
+    print(fits)
     for metric in fits[0].keys():
         scores = [fit[metric] for fit in fits]
         metric_scores[metric] = calc_metric(scores)
         # metric_scores.append([fit[metric] for fit in fits])
 
     return pd.DataFrame(metric_scores, index=["mean", "std", "min", "max", "median"], columns=metric_scores.keys())
+
+
+def run_process(*args):
+    scores, conv_score = toolbox.run(*args[0])
+    return scores, conv_score
 
 
 # def run_community_detection(G, algorithm):
@@ -198,172 +216,280 @@ def evaluate_fits(fits):
 
 
 # set random seed
-np.random.seed(389)
-
-# graph = nx.karate_club_graph()
-# {filename:graph} for all ffiles in the databaase folder, gml vs txt
-# graphs = {f: nx.read_gml(f) for f in glob.glob("database/*.gml")}
-graphs = {os.path.splitext(f)[0]: nx.read_gml(os.path.join("database", f), label='id') for f in os.listdir("database")
-          if f.endswith(".gml")}
-
-print("Graphs:", graphs.keys())
-# read gml of all files
-
-# exit()
-
-dolphins = graphs["dolphins"]
-zachary_karate = nx.karate_club_graph()
-# dolphins = nx.convert_node_labels_to_integers(dolphins, first_label=0, ordering='default', label_attribute=None)
-network_scientists = graphs["netscience"]
-# network_scientists = nx.convert_node_labels_to_integers(network_scientists, first_label=0, ordering='default', label_attribute=None)
-facebook = nx.read_edgelist('database/facebook_combined.txt', create_using=nx.Graph(), nodetype=int)
-facebook = nx.convert_node_labels_to_integers(facebook, first_label=0, ordering='default', label_attribute=None)
-# use dolphins for testing
-graph = dolphins
-# pos = nx.spring_layout(dolphins)
-# pickle load toolbox if it exists else create it
-# if not os.path.exists('toolbox.p'):
-toolbox = centrality_community_detection.create()
-# else:
-#     toolbox = pickle.load(open('toolbox.p', 'rb'))
-# toolbox = pickle.load(open("toolbox.p", "rb"))
-
-# graph = dolphins
-# nx.draw_networkx(graph, pos, node_size=75, alpha=0.8)
-# plt.show()
-nodes = graph.nodes
-edges = graph.edges
-i = 0
-max_iterations = 5
-true_communities = None
-# true_labels = set(nx.get_node_attributes(graph, 'club').values())
-# # get index of first node in each club
-# true_communities = [set([node for node, data in graph.nodes(data=True) if data['club'] == club]) for club in
-#                     true_labels]
-# false_communities = [set([node for node, data in graph.nodes(data=True) if data['club'] != club]) for club in
-#                         true_labels]
-# print("True Communities:", true_communities)
-# print("False Communities:", false_communities)
-# true_labels = classify_communities(true_communities, false_communities, list(graph.nodes))
-# # get metrics for true communities
-# true_metrics = evaluate_run(graph, pred=false_communities, true = true_communities)
-# print(true_metrics)
-# draw_communities(communities=true_communities, G=graph, metrics={}, title="ACTUAL")
-fits = []
-times = []
-
-
-# true_label_index = {label: i for i, label in enumerate(true_labels)}
-while i < max_iterations:
-    start = time.time()
-    communities_lp = list(nx_comm.label_propagation_communities(graph))
-    fits.append(evaluate_run(G=graph, pred=communities_lp, true=true_communities, start_time=start))
-    times.append(time.time() - start)
-    i += 1
-print("LABEL PROPOGATION COMMUNITIES:", communities_lp)
-metrics = evaluate_fits(fits)
-
-print("EVALUATION METRICS\n", evaluate_fits(fits))
-draw_communities(communities=communities_lp, G=graph, metrics={"NMI": metrics["NMI"]["mean"]}, title="LABEL PROPAGATION")
-
-fits = []
-times = []
-i = 0
-
-while i < max_iterations:
-    start = time.time()
-    communities_louvain = nx_comm.louvain_communities(graph)
-    fits.append(evaluate_run(G=graph, pred=communities_louvain, true=true_communities, start_time=start))
-    times.append(time.time() - start)
-    i += 1
-print("LOUVAIN COMMUNITIES:", communities_louvain)
-metrics = evaluate_fits(fits)
-
-print("EVALUATION METRICS\n", evaluate_fits(fits))
-draw_communities(communities=communities_louvain, G=graph, metrics={"NMI": metrics["NMI"]["mean"]}, title="LOUVAIN")
-
-fits = []
-times = []
-i = 0
-while i < max_iterations:
-    start = time.time()
-    communities_greedy = nx_comm.greedy_modularity_communities(graph)
-    fits.append(evaluate_run(G=graph, pred=communities_greedy, true=true_communities, start_time=start))
-    times.append(time.time() - start)
-    i += 1
-print("GREEDY COMMUNITIES:", communities_greedy)
-metrics = evaluate_fits(fits)
-
-print("EVALUATION METRICS\n", evaluate_fits(fits))
-draw_communities(communities=communities_greedy, G=graph, metrics={"NMI": metrics["NMI"]["mean"]}, title="GREEDY")
-
-fits = []
-times = []
-i = 0
-while i < max_iterations:
-    """implement leiden community detection"""
-    start = time.time()
-    communities_leiden = algorithms.leiden(graph)
-    fits.append(evaluate_run(G=graph, pred=communities_leiden.communities, true=true_communities, start_time=start))
-    times.append(time.time() - start)
-    i += 1
-print("LEIDEN COMMUNITIES", communities_leiden.communities)
-metrics = evaluate_fits(fits)
-
-print("EVALUATION METRICS\n", evaluate_fits(fits))
-draw_communities(communities=communities_leiden.communities, G=graph, metrics={"NMI": metrics["NMI"]["mean"]}, title="LEIDEN")
-best = (true_communities, 0)
-if not true_communities:
-# get the best community detection algorithm
-    for communities in [communities_lp, communities_louvain, communities_greedy, communities_leiden.communities]:
-        # get metrics for true communities
-        true_metrics = evaluate_run(graph, communities)
-        if true_metrics["Modularity"] > best[1]:
-            best = (communities, true_metrics["Modularity"])
-    # print(true_metrics)
-    # draw_communities(communities=communities, G=graph, metrics={}, title="ACTUAL")
-fits = []
-times = []
-i = 0
-
-fig = plt.figure()
-plt.xlabel('Generation')
-plt.ylabel('Modularity')
-plt.title('Modularity Convergence')
-
-generation = 100
-population = 100
-convergence = [[0, 0]] * generation
-# zachary_karate_true_labels = [{1, 2, 3, 4, 5, 6, 7, 8, }]
-
-# total_time = 0
-try:
-    for i in range(1, max_iterations + 1):
-        start = time.time()
-        # interval = time.time()
-        pop, Adj, centrality = toolbox.initialise(graph)
-        scores, conv_score = toolbox.run(pop=pop, Adj=Adj, centrality=centrality, graph=graph, generation=generation,
-                                         population=population)
-        convergence = [[convergence[g][index] + conv_score[g][index] for index in range(len(conv_score[g]))] for g in
-                       range(len(conv_score))]
-        print(f"Iteration {i} of {max_iterations} completed")
-        fits.append(evaluate_run(G=graph, pred=scores.subset, true=best[0], start_time=start))
-        print(fits[-1])
-        print(f"Time taken: {time.time() - start}")
-finally:
-    print("GA COMMUNITIES", scores.subset)
-    print(evaluate_fits(fits))
-    for c, _ in enumerate(convergence):
-        for index in range(len(convergence[c])):
-            convergence[c][index] /= i
-    print("final convergence=", convergence)
-    # plot all convergence index 0
-    for index in range(len(convergence[0])):
-        plt.plot([c[index] for c in convergence], label=f"Convergence {index}")
-        plt.show()
-
-
-    metrics = {"NMI": evaluate_fits(fits)['NMI']['mean']}
-    draw_communities(communities=scores.subset, G=graph, metrics=metrics, title="GADeap")
 
 # check degree and see if can be moved
+if __name__ == '__main__':
+
+    random.seed(389)
+    np.random.seed(389)
+
+    # graph = nx.karate_club_graph()
+    # {filename:graph} for all ffiles in the databaase folder, gml vs txt
+    # graphs = {f: nx.read_gml(f) for f in glob.glob("database/*.gml")}
+    database_dir = os.path.join(BASE_DIR, "database")
+    graphs = {os.path.splitext(f)[0]: nx.read_gml(os.path.join(database_dir, f), label='id') for f in
+              os.listdir(database_dir)
+              if f.endswith(".gml")}
+    dolphin_communities = graphs['dolphins'].subgraph(max(nx.connected_components(graphs['dolphins']), key=len))
+    print(dolphin_communities.__dict__)
+    # group1 = ['knit, pl', ]
+    print(dolphin_communities)
+    print("Graphs:", graphs.keys())
+    # read gml of all files
+
+    # exit()
+
+    dolphins = graphs["dolphins"]
+    zachary_karate = nx.karate_club_graph()
+    # dolphins = nx.convert_node_labels_to_integers(dolphins, first_label=0, ordering='default', label_attribute=None)
+    network_scientists = graphs["netscience"]
+    # network_scientists = nx.convert_node_labels_to_integers(network_scientists, first_label=0, ordering='default', label_attribute=None)
+    # facebook = nx.read_edgelist('database/facebook_combined.txt', create_using=nx.Graph(), nodetype=int)
+    # facebook = nx.convert_node_labels_to_integers(facebook, first_label=0, ordering='default', label_attribute=None)
+    # use dolphins for testing
+    dataset_names = ["karate", "dolphins"]
+    for INDEX, graph in enumerate([zachary_karate, dolphins]):
+        # pos = nx.spring_layout(dolphins)
+        # pickle load toolbox if it exists else create it
+        # if not os.path.exists('toolbox.p'):
+        # else:
+        #     toolbox = pickle.load(open('toolbox.p', 'rb'))
+        # toolbox = pickle.load(open("toolbox.p", "rb"))
+
+        # graph = dolphins
+        # nx.draw_networkx(graph, pos, node_size=75, alpha=0.8)
+        # plt.show()
+        nodes = graph.nodes
+        edges = graph.edges
+        i = 0
+        max_iterations = 30
+        true_communities = None
+        if dataset_names[INDEX] != "netscience":
+            true_labels = set(nx.get_node_attributes(graph, 'club').values())
+            print("True labels:", true_labels)
+            # # # get index of first node in each club
+            true_communities = [set([node for node, data in graph.nodes(data=True) if data['club'] == club]) for club in
+                                true_labels]
+            false_communities = [set([node for node, data in graph.nodes(data=True) if data['club'] != club]) for club
+                                 in
+                                 true_labels]
+            print("True Communities:", true_communities)
+            print("False Communities:", false_communities)
+            true_labels = classify_communities(
+                true_communities, false_communities, list(graph.nodes))
+            # get metrics for true communities
+            true_metrics = evaluate_run(
+                graph, pred=true_communities, true=true_communities)
+            print(true_metrics)
+            draw_communities(communities=true_communities, G=graph, metrics={}, title=f"ACTUAL_{dataset_names[INDEX]}")
+
+        fits = []
+        times = []
+
+        # true_label_index = {label: i for i, label in enumerate(true_labels)}
+        while i < max_iterations:
+            start = time.time()
+            communities_lp = list(nx_comm.label_propagation_communities(graph))
+            fits.append(evaluate_run(G=graph, pred=communities_lp, true=true_communities, start_time=start))
+            times.append(time.time() - start)
+            i += 1
+        print("LABEL PROPOGATION COMMUNITIES:", communities_lp)
+        metrics = evaluate_fits(fits)
+        ALL_METRICS['label_propagation'] = metrics
+
+        print("EVALUATION METRICS\n", metrics)
+        draw_communities(communities=communities_lp, G=graph, metrics={"NMI": metrics["NMI"]["mean"]},
+                         title=f"LABEL PROPAGATION_{dataset_names[INDEX]}")
+
+        fits = []
+        times = []
+        i = 0
+
+        while i < max_iterations:
+            start = time.time()
+            communities_louvain = nx_comm.louvain_communities(graph)
+            fits.append(evaluate_run(G=graph, pred=communities_louvain, true=true_communities, start_time=start))
+            times.append(time.time() - start)
+            i += 1
+        print("LOUVAIN COMMUNITIES:", communities_louvain)
+        metrics = evaluate_fits(fits)
+        ALL_METRICS['louvain'] = metrics
+
+        print("EVALUATION METRICS\n", metrics)
+        draw_communities(communities=communities_louvain, G=graph, metrics={"NMI": metrics["NMI"]["mean"]},
+                         title=f"LOUVAIN_{dataset_names[INDEX]}")
+
+        fits = []
+        times = []
+        i = 0
+        while i < max_iterations:
+            start = time.time()
+            communities_greedy = nx_comm.greedy_modularity_communities(graph)
+            fits.append(evaluate_run(G=graph, pred=communities_greedy, true=true_communities, start_time=start))
+            times.append(time.time() - start)
+            i += 1
+        print("GREEDY COMMUNITIES:", communities_greedy)
+        metrics = evaluate_fits(fits)
+        ALL_METRICS['greedy'] = metrics
+
+        print("EVALUATION METRICS\n", metrics)
+        draw_communities(communities=communities_greedy, G=graph, metrics={"NMI": metrics["NMI"]["mean"]},
+                         title=f"GREEDY_{dataset_names[INDEX]}")
+        #
+        fits = []
+        times = []
+        i = 0
+        while i < max_iterations:
+            """implement leiden community detection"""
+            start = time.time()
+            communities_leiden = algorithms.leiden(graph)
+            fits.append(
+                evaluate_run(G=graph, pred=communities_leiden.communities, true=true_communities, start_time=(start),
+                             max_iter=max_iterations))
+            times.append(time.time() - start)
+            i += 1
+        print("LEIDEN COMMUNITIES", communities_leiden.communities)
+        metrics = evaluate_fits(fits)
+        ALL_METRICS['leiden'] = metrics
+
+        print("EVALUATION METRICS\n", metrics)
+        draw_communities(communities=communities_leiden.communities, G=graph, metrics={"NMI": metrics["NMI"]["mean"]},
+                         title=f"LEIDEN_{dataset_names[INDEX]}")
+        best = (true_communities, 0)
+        if not true_communities:
+            # get the best community detection algorithm
+            for communities in [communities_lp, communities_louvain, communities_greedy,
+                                communities_leiden.communities]:
+                # get metrics for true communities
+                true_metrics = evaluate_run(graph, communities)
+                if true_metrics["Modularity"] > best[1]:
+                    best = (communities, true_metrics["Modularity"])
+            # print(true_metrics)
+            # draw_communities(communities=communities, G=graph, metrics={}, title="ACTUAL")
+
+        fits = []
+
+        i = 0
+
+        fig = plt.figure()
+
+        generation = 100
+        population = 100
+        Adj = nx.adjacency_matrix(graph)
+        CXPB, MUTPB = 0.6, 0.4
+        toolbox = centrality_community_detection.create(pop_size=population, CXPB=CXPB, MUTPB=MUTPB, Adj=Adj, G=graph)
+
+        convergence = [[0, 0]] * generation
+        processes = []
+        # zachary_karate_true_labels = [{1, 2, 3, 4, 5, 6, 7, 8, }]
+
+        # total_time = 0
+        try:
+            start = time.time()
+            args = [(toolbox.population(), toolbox.centrality(), Adj, graph, generation, population) for i in
+                    range(max_iterations)]
+            result = [run_process(args[i]) for i in range(max_iterations)]
+            # with Pool(processes=1) as pool:
+            #     args = [(toolbox.population(), toolbox.centrality(), Adj, graph, generation, population) for i in
+            #             range(max_iterations)]
+            #     result = pool.map(run_process, iter(args))
+            print(result)
+            for i, (scores, conv_score) in enumerate(result):
+                convergence = [[convergence[g][index] + conv_score[g][index] for index in range(len(conv_score[g]))] for
+                               g
+                               in
+                               range(len(conv_score))]
+                fits.append(
+                    evaluate_run(G=graph, pred=scores.subset, true=best[0], start_time=start, max_iter=max_iterations))
+                print(f"Iteration {i} of {max_iterations} completed")
+
+        finally:
+            print(f"Time taken: {(time.time() - start) / max_iterations}")
+            metrics = evaluate_fits(fits)
+            ALL_METRICS['ga_centrality'] = metrics
+            print(metrics)
+            for c, _ in enumerate(convergence):
+                for index in range(len(convergence[c])):
+                    convergence[c][index] /= i
+            print("final convergence=", convergence)
+            # plot all convergence index 0
+            for index in range(len(convergence[0])):
+                plt.plot([c[index] for c in convergence], label=f"Convergence {index}")
+                plt.xlabel('Generation')
+                plt.ylabel('Fitness (Modularity)')
+                plt.title('Fitness Convergence')
+
+                # output convergence plot to file
+                plt.savefig(f"{BASE_DIR}/output/{dataset_names[INDEX]}_convergence_with_centrality.png")
+                plt.show()
+
+            metrics = {"NMI": evaluate_fits(fits)['NMI']['mean']}
+            # ALL_METRICS.append(metrics)
+
+            draw_communities(communities=scores.subset, G=graph, metrics=metrics,
+                             title=f"GADeap_{dataset_names[INDEX]}")
+        if dataset_names[INDEX] != "netscience":
+            scores = None
+            start = time.time()
+            fits = []
+            times = []
+            i = 0
+
+            fig = plt.figure()
+            plt.xlabel('Generation')
+            plt.ylabel('Modularity')
+            plt.title('Modularity Convergence')
+            convergence_max, convergence_min = 1, 0
+            generation = 100
+            population = 300
+            CXPB, MUTPB = 0.8, 0.2
+            Adj = nx.adjacency_matrix(graph)
+            nodes = graph.nodes()
+            nodes_len = len(nodes)
+            print(nodes_len)
+            toolbox = community_detection.register_toolbox(graph, CXPB=CXPB, MUTPB=MUTPB, population=population)
+            convergence = [[0, 0]] * generation
+            processes = []
+            try:
+                start = time.time()
+                args = [(toolbox.population(), graph, generation, population) for i in range(max_iterations)]
+                result = [run_process(args[i]) for i in range(max_iterations)]
+                # with Pool(processes=1) as pool:
+                #     args = [(toolbox.population(), graph, generation, population) for i in range(max_iterations)]
+                #     result = pool.map(run_process, iter(args))
+                for i, (scores, conv_score) in enumerate(result):
+                    convergence = [[convergence[g][index] + conv_score[g][index] for index in range(len(conv_score[g]))]
+                                   for
+                                   g in
+                                   range(len(conv_score))]
+                    fits.append(evaluate_run(G=graph, pred=scores.subset, true=best[0], start_time=start))
+                    print(f"Iteration {i} of {max_iterations} completed")
+            finally:
+                print(f"Time taken: {(time.time() - start) / max_iterations}")
+                metrics = evaluate_fits(fits)
+                print(metrics)
+                ALL_METRICS['ga'] = metrics
+                for c, _ in enumerate(convergence):
+                    for index in range(len(convergence[c])):
+                        convergence[c][index] /= i
+                print("final convergence=", convergence)
+                # plot all convergence index 0
+                for index in range(len(convergence[0])):
+                    plt.plot([c[index] for c in convergence], label=f"Convergence {index}")
+                    plt.xlabel('Generation')
+                    plt.ylabel('Fitness (Modularity)')
+                    plt.title('Fitness Convergence')
+
+                    # output convergence plot to file
+                    plt.savefig(f"{BASE_DIR}/output/{dataset_names[INDEX]}_convergence_before.png")
+                    plt.show()
+
+                metrics = {"NMI": evaluate_fits(fits)['NMI']['mean']}
+
+                draw_communities(communities=scores.subset, G=graph, metrics=metrics,
+                                 title=f"GA without Centrality_{dataset_names[INDEX]}")
+
+        # concatenate all metrics
+        all_metrics = pd.concat(list(ALL_METRICS.values()), axis=0, keys=list(ALL_METRICS.keys()))
+        all_metrics.to_csv(f"{BASE_DIR}/output/{dataset_names[INDEX]}_metrics.csv")
+        ALL_METRICS = {}

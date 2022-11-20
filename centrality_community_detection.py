@@ -8,7 +8,7 @@ import numpy as np
 from deap import base, creator, tools
 
 
-def community_detection(pop, Adj, centrality, graph, generation=30, population=500):
+def community_detection(pop, centrality, Adj, graph, generation=30, population=500):
     """
     :param Adj:
     :param centrality:
@@ -19,6 +19,7 @@ def community_detection(pop, Adj, centrality, graph, generation=30, population=5
     :param r: crossover rate
     :return:
     """
+    # pop, centrality = toolbox.initialise(graph, population)
     convergence = []
     for ind in pop:
         ind.subset = toolbox.subsets(chrom=ind, G=graph, centrality=centrality)
@@ -30,13 +31,17 @@ def community_detection(pop, Adj, centrality, graph, generation=30, population=5
         elites = pop[:int(population * .1)]
         size = int(np.floor(population * 0.9))
         # pop = pop[:size]
-        offspring = toolbox.select(pop, size)
-        offspring = list(map(toolbox.clone, offspring))
+        offspring = list(map(toolbox.clone, pop[:]))
         # convergence.append(offspring[0].fitness.values[0])
         for child1, child2 in zip(offspring[::2], offspring[1::2]):
-            toolbox.mate(ind1=child1.centres, ind2=child2.centres)
+            toolbox.mate(ind1=child1, ind2=child2)
+            # print("child1:", child1.centres)
+            # print("child2:", child2.centres)
             toolbox.mutate(chrom=child1, G=graph, Adj=Adj, centrality=centrality)
             toolbox.mutate(chrom=child2, G=graph, Adj=Adj, centrality=centrality)
+            #
+            # print("child1:", child1.centres)
+            # print("child2:", child2.centres)
 
             # fitness values of the children
             # must be recalculated later
@@ -48,13 +53,14 @@ def community_detection(pop, Adj, centrality, graph, generation=30, population=5
         # Evaluate the individuals with an invalid fitness
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         for ind in invalid_ind:
+            # print("ind:", ind, ind.centres, ind.subset)
             ind.subset = toolbox.subsets(chrom=ind, G=graph, centrality=centrality)
             ind.fitness.values = toolbox.evaluate(communities=ind.subset, G=graph, centres = ind.centres)
         # map invalid_ind to offspring
         offspring += invalid_ind
-        offspring += elites
+        # offspring += elites
         # The population is entirely replaced by the offspring
-        pop[:] = offspring
+        pop[:] = toolbox.select(offspring, k = size) + elites
         pop.sort(key=lambda x: x.fitness, reverse=True)
         try:
             for i, value in enumerate(convergence[g]):
@@ -64,8 +70,7 @@ def community_detection(pop, Adj, centrality, graph, generation=30, population=5
 
     best_ind = tools.selBest(pop, 1, fit_attr="fitness")[0]
 
-    # return best_ind.fitness.values
-    # return be
+    # return best_ind
     print("Best individual is %s, %s" % (best_ind.subset, best_ind.fitness.values))
 
     return best_ind, convergence
@@ -89,17 +94,20 @@ def init_centres(chrom):
     :return:
     """
     # generate random number (k) of centres
-    k = np.random.randint(1, len(chrom) / 2)
+    k = np.random.randint(1, len(chrom) / 3)
     # get the k nodes within the chrom as centres
     centres = list(set(np.random.choice(chrom, size=k, replace=False)))
-    centres = [{c} for c in centres]
+    # print("centres:", centres)
     return centres
 
 
 def generate_chrom(nodes, Adj):
     chrom = np.array(nodes, dtype=int)
+    # shuffle the nodes
+    np.random.shuffle(chrom)
     chrom = creator.Individual(chrom)
     chrom.centres = init_centres(chrom)
+    chrom.visited = set()
     return chrom
 
 
@@ -137,67 +145,25 @@ def find_subsets(G, chrom, centrality):
     :return:
     """
     temp = list(chrom[:])
-    sub = []
-    # while temp is not empty,
-    # find the node with the highest centrality in temp
-    # find all nodes immediately connected to it
-    # add the set of nodes to sub
-    # remove the nodes from temp
-    # get only nodes in temp
-    # while temp:
-    # print(node_centralities)
-    # print(temp)
-    # # find the node with the highest centrality
-    # node = max(node_centralities, key=lambda x: x[1])[0]
-    # # remove the node from node centrality
-    # node_centralities = list(filter(lambda x: x[0] != node, node_centralities))
-    # # find all nodes immediately connected to it within temp
-    # neighbors = list(G.subgraph(temp).neighbors(node))
-    # # remove neighbours from node centralities
-    # node_centralities = list(filter(lambda x: x[0] not in neighbors, node_centralities))
-    # # add the set of nodes to sub
-    # #add node to neighbors
-    # neighbors.append(node)
-    # sub.append(set(neighbors))
-    # # remove the nodes from temp
-    # temp = list(set(temp) - set(neighbors))
-    # for x in range(len(chrom)):
-    #     neighbours = set(G.neighbors(x))
-    #     intersect = list(neighbours.intersection(temp))
-    #     if len(intersect) == 0 or (len(intersect) == 1 and {x, intersect[0]} in sub):
-    #         sub.append({x, x})
-    #     else:
-    #         # print list of nodes in node_centralities
-    #         # if node centrality does not intersect with intersect, print intersect
-    #         if not any(map(lambda n: n[0] in intersect, node_centralities)):
-    #             print("INTERSECT:", intersect)
-    #         node = max(list(filter(lambda n: n[0] in intersect, node_centralities)), key=lambda n: n[1])[0]
-    #
-    #         sub.append({x, node})
-    #         # remove node from temp
-    #         temp.remove(node)
-    #         # remove node from node_centralities
-    #         node_centralities = list(filter(lambda n: n[0] != node, node_centralities)) if node not in temp \
-    #             else node_centralities
-    #
-    #
-    sub = chrom.centres
+    sub = [{c} for c in chrom.centres]
+    # for i in range(len(temp)):
+    #     sub.append({random.choice(chrom.centres), i})
     while temp:
-        old_sub = sub
+        old_sub = sub[:]
         for i, c in enumerate(sub):
             neighbours = set()
             for x in c:
                 neighbours = neighbours | set(G.neighbors(x))
 
-            intersect = list(neighbours.intersection(temp))
+            intersect = neighbours.intersection(temp)
             # remove values in centres from intersect
-            intersect = list(filter(lambda x: any(map(lambda y: x not in y, sub)), intersect))
-            if len(intersect) == 0:
+            # intersect = list(filter(lambda x: any(map(lambda y: x not in y, sub)), intersect))
+            if not intersect:
                 sub[i] = sub[i] | c
             else:
-                sub[i] = sub[i] | set(intersect)
+                sub[i] = sub[i] | intersect
                 # remove intersect from temp
-                temp = list(set(temp) - set(intersect))
+                temp = list(set(temp) - intersect)
             # remove c from temp
             if set(temp) & c:
                 temp = list(set(temp) - c)
@@ -212,8 +178,8 @@ def find_subsets(G, chrom, centrality):
                 # sub.append({t, t})
                 temp.remove(t)
             # temp.remove(c)
-    # add remaining nodes to sub
-    i = 0
+    # # add remaining nodes to sub
+    # i = 0
     # while temp:
     #     old_sub = sub
     #     for t in temp:
@@ -280,19 +246,14 @@ def calc_ind_centrality(G, chrom, weight, centres):
             # check if any of the nodes in the subset are in the centres
             # if so, get the centre
             # else, calculate the centrality of the subset
-            intersect = list(set(subset).intersection(centres))
+            intersect = set(subset).intersection(centres)
             if intersect:
-                c = intersect[0]
+                # c = intersect[0]
                 # c = random.choice(centres)
                 # get the value in centres that corresponds to the node in subset
                 # get all subsets except the current one
-                all_subsets = list(filter(lambda x: x != subset, chrom))
-                # # get all nodes in all subsets
-                all_nodes = set()
-                for s in all_subsets:
-                    all_nodes = all_nodes.union(s)
 
-                centrality = nx.closeness_centrality(G.subgraph(subset), c) - nx.closeness_centrality(G, c)
+                centrality = np.mean([nx.closeness_centrality(G.subgraph(subset), c) for c in intersect])
                 centralities.append(centrality)
             else:
                 try:
@@ -313,10 +274,25 @@ def evaluate(G, communities, centres, weight="weight", resolution=1):
     :param communities:
     :return:
     """
-    # centres_flat = [item for sublist in centres for item in sublist]
+    # centres_flat = {item for sublist in centres for item in sublist}
+    matrix = nx.to_numpy_matrix(G, weight=weight)
+    CS = 0
+    for s in communities:
+        submatrix = np.zeros((len(G.nodes), len(G.nodes)), dtype=int)
+        for i in s:
+            for j in s:
+                submatrix[i][j] = matrix[i][j]
+        M = 0
+        v = 0
+        for row in list(s):
+            row_mean = np.sum(submatrix[row]) / len(s)
+            v += np.sum(submatrix[row])
+            M += (row_mean ** r) / len(s)
+        CS += M * v
+    return CS
     modularity_score = nx_comm.modularity(G, communities, weight=weight, resolution=resolution)
-    # centrality_score = calc_ind_centrality(G, communities, centres=centres_flat, weight=weight)
-    return modularity_score,
+    # centrality_score = calc_ind_centrality(G, communities, centres=centres, weight=weight)
+    return np.mean([modularity_score,]),
 
 
 def mutation(chrom, Adj, mutation_rate, G, centrality):
@@ -349,56 +325,87 @@ def mutation(chrom, Adj, mutation_rate, G, centrality):
     # REWRITE THIS to be more efficient
     for c, centre in enumerate(chrom.centres):
         if np.random.random_sample() < mutation_rate:
-            neighbors = set()
-            for x in centre:
-                neighbors = neighbors | set(G.neighbors(x))
-            neighbors = list(neighbors - centre)
+            neighbors = list(G.neighbors(centre))
+            # remove the nodes that are already in the centre
+            neighbors = list(filter(lambda x: x not in chrom.centres + list(chrom.visited), neighbors))
+            # find the first node in neighbours that has a higher centrality value than the current node
+            # for n in neighbors:
+            #     if dict(centrality)[n] > dict(centrality)[centre]:
+            #         chrom.centres[c] = chrom.centres[c] - {x} | {n}
+            #         break
 
-            # row = Adj[n].toarray()[0]
-            # neighbor = [i for i in range(len(row)) if row[i] > 0]
-            # print(chrom.subset)
-            while len(neighbors) > 0:
-                n = int(np.floor(np.random.random_sample() * (len(neighbors))))
-                to_change = random.choice(list(centre))
+            if not neighbors:
+                # if there are no neighbours, choose a random node from the centres and combine them
+                # print("rand:", rand)
+                temp = centre
+                while temp in chrom.centres + list(chrom.visited):
+                    temp = random.choice(chrom)
 
-                # find node in neighbor with highest centrality value
-                # to_change = int(np.floor(np.random.random_sample() * (len(neighbor))))
-                if dict(centrality)[neighbors[n]] > dict(centrality)[to_change]:
-                    chrom.centres[c] = {neighbors[n]}
-                    break
+                chrom.centres[c] = temp
+            else:
+                # neighbors.sort(key=lambda x: dict(centrality)[x], reverse=True)
+                # get neighbour with max centrality that is not already in the centres
+                n = max(neighbors, key=lambda x: dict(centrality)[x])
+                if dict(centrality)[n] > dict(centrality)[centre]:
+                    chrom.visited.add(n)
+                    chrom.centres[c] = n
                 else:
-                    # remove node at index to_change from neighbor
-                    neighbors.pop(n)
-                if not neighbors:
-                    rnad = random.choice(chrom.centres)
-                    chrom.centres[c] = set(centre).union(set(rnad))
-                    # remove random node from chrom.centres
-                    chrom.centres.remove(rnad)
+                    # if the neighbour is not more central than the current node, choose a random node from the centres and combine them
+                    temp = centre
+                    while temp in chrom.centres + list(chrom.visited):
+                        temp = random.choice(chrom)
+                    chrom.centres[c] = temp
+                # x = min(centre, key=lambda x: dict(centrality)[x])
+                # x_orig = x
+                # print("x:", x)
+                # print(len(neighbors))
+                # for x in chrom.centres[c]:
+                #     if dict(centrality)[n] > dict(centrality)[x]:
+                #         centre.remove(x)
+                # if len(centre) != len(chrom.centres[c]):
+                #     # if the centre has not changed, choose a random node from the centres and combine them
+                #     # print("rand:", rand)
+                #     centre.add(n)
+                # chrom.centres[c] = centre
+    # REMOVE DUPLICATE CENTRES
+    chrom.centres = list(set(chrom.centres))
+                    # find the node in neighbours that has the highest centrality value
+                    # find the node in centre that has the lowest centrality value
+
+
+                        # if we have reached the last node in neighbours and the node in centre still has the highest
+                        # centrality value, then we need to remove the node from the centres
                 # neighbor.append(chrom[i])
     return chrom
 
+def cxUniform(ind1, ind2, indpb):
+    """Executes a uniform crossover that modify in place the two
+    :term:`sequence` individuals. The attributes are swapped accordingto the
+    *indpb* probability.
+
+    :param ind1: The first individual participating in the crossover.
+    :param ind2: The second individual participating in the crossover.
+    :param indpb: Independent probabily for each attribute to be exchanged.
+    :returns: A tuple of two individuals.
+
+    This function uses the :func:`~random.random` function from the python base
+    :mod:`random` module.
+    """
+    size = min(len(ind1.centres), len(ind2.centres))
+    for i in range(size):
+        if random.random() < indpb:
+            ind1.centres[i], ind2.centres[i] = ind2.centres[i], ind1.centres[i]
+
+    return ind1, ind2
 
 ############################################################################################
-CXPB, MUTPB = 0.4, 0.6
 
 
-def initialize(G):
-    global toolbox
-    creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-    creator.create("Individual", np.ndarray, fitness=creator.FitnessMax, subset=list, centres=list)
-    Adj = nx.adjacency_matrix(G)
-    centrality = calculate_centrality(G).items()
-    toolbox.register("individual", generate_chrom, Adj=Adj, nodes=list(G.nodes))
-    toolbox.register("population", tools.initRepeat, list, toolbox.individual, n=100)
-    pop = toolbox.population()
-    return pop, Adj, centrality
-
-
-def create():
+def create(pop_size, G, Adj, CXPB=0.4, MUTPB=0.6, ):
     global toolbox
     # create the population
     creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-    creator.create("Individual", np.ndarray, fitness=creator.FitnessMax, subset=list, centres=list)
+    creator.create("Individual", np.ndarray, fitness=creator.FitnessMax, subset=list, centres=list, visited=set)
 
     # create the toolbox
     toolbox = base.Toolbox()
@@ -406,15 +413,18 @@ def create():
     toolbox.register("subsets", find_subsets)
     toolbox.register("evaluate", evaluate, weight='weight', resolution=1.0)
 
-    toolbox.register("mate", tools.cxUniform, indpb=CXPB)
+    toolbox.register("mate", cxUniform, indpb=CXPB)
     toolbox.register("mutate", mutation, mutation_rate=MUTPB)
-    toolbox.register("select", tools.selRoulette, fit_attr="fitness")
+    toolbox.register("select", tools.selRoulette, fit_attr="fitness",)
 
+    toolbox.register("individual", generate_chrom, Adj=Adj, nodes=list(G.nodes))
+    toolbox.register("population", tools.initRepeat, list, toolbox.individual, n=pop_size)
+
+    toolbox.register("centrality", calculate_centrality, G=G)
     toolbox.register("run", community_detection)
-    toolbox.register("initialise", initialize)
-    pickle.dump(toolbox, open("toolbox.p", "wb"))
+    # pickle.dump(toolbox, open("toolbox.p", "wb"))
     return toolbox
 
 
 if __name__ == '__main__':
-    create()
+    create(100, CXPB=0.4, MUTPB=0.6)

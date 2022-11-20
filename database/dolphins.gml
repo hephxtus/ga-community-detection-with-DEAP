@@ -6,311 +6,373 @@ graph
   [
     id 0
     label "Beak"
+    club 4
   ]
   node
   [
     id 1
     label "Beescratch"
+    club 3
   ]
   node
   [
     id 2
     label "Bumper"
+    club 4
   ]
   node
   [
     id 3
     label "CCL"
+    club 1
   ]
   node
   [
     id 4
     label "Cross"
+    club 2
   ]
   node
   [
     id 5
     label "DN16"
+    club 3
   ]
   node
   [
     id 6
     label "DN21"
+    club 3
   ]
   node
   [
     id 7
     label "DN63"
+    club 3
   ]
   node
   [
     id 8
     label "Double"
+    club 1
   ]
   node
   [
     id 9
     label "Feather"
+    club 3
   ]
   node
   [
     id 10
     label "Fish"
+    club 4
   ]
   node
   [
     id 11
     label "Five"
+    club 2
   ]
   node
   [
     id 12
     label "Fork"
+    club 1
   ]
   node
   [
     id 13
     label "Gallatin"
+    club 3
   ]
   node
   [
     id 14
     label "Grin"
+    club 1
   ]
   node
   [
     id 15
     label "Haecksel"
+    club 2
   ]
   node
   [
     id 16
     label "Hook"
+    club 1
   ]
   node
   [
     id 17
     label "Jet"
+    club 3
   ]
   node
   [
     id 18
     label "Jonah"
+    club 2
   ]
   node
   [
     id 19
     label "Knit"
+    club 3
   ]
   node
   [
     id 20
     label "Kringel"
+    club 1
   ]
   node
   [
     id 21
     label "MN105"
+    club 2
   ]
   node
   [
     id 22
     label "MN23"
+    club 3
   ]
   node
   [
     id 23
     label "MN60"
+    club 2
   ]
   node
   [
     id 24
     label "MN83"
+    club 2
   ]
   node
   [
     id 25
     label "Mus"
+    club 3
   ]
   node
   [
     id 26
     label "Notch"
+    club 3
   ]
   node
   [
     id 27
     label "Number1"
+    club 3
   ]
   node
   [
     id 28
     label "Oscar"
+    club 4
   ]
   node
   [
     id 29
     label "Patchback"
+    club 2
   ]
   node
   [
     id 30
     label "PL"
+    club 4
   ]
   node
   [
     id 31
     label "Quasi"
+    club 3
   ]
   node
   [
     id 32
     label "Ripplefluke"
+    club 3
   ]
   node
   [
     id 33
     label "Scabs"
+    club 1
   ]
   node
   [
     id 34
     label "Shmuddel"
+    club 1
   ]
   node
   [
     id 35
     label "SMN5"
+    club 2
   ]
   node
   [
     id 36
     label "SN100"
+    club 1
   ]
   node
   [
     id 37
     label "SN4"
+    club 1
   ]
   node
   [
     id 38
     label "SN63"
+    club 1
   ]
   node
   [
     id 39
     label "SN89"
+    club 1
   ]
   node
   [
     id 40
     label "SN9"
+    club 1
   ]
   node
   [
     id 41
     label "SN90"
+    club 3
   ]
   node
   [
     id 42
     label "SN96"
+    club 4
   ]
   node
   [
     id 43
     label "Stripes"
+    club 1
   ]
   node
   [
     id 44
     label "Thumper"
+    club 1
   ]
   node
   [
     id 45
     label "Topless"
+    club 2
   ]
   node
   [
     id 46
     label "TR120"
+    club 1
   ]
   node
   [
     id 47
     label "TR77"
+    club 4
   ]
   node
   [
     id 48
     label "TR82"
+    club 3
   ]
   node
   [
     id 49
     label "TR88"
+    club 1
   ]
   node
   [
     id 50
     label "TR99"
+    club 1
   ]
   node
   [
     id 51
     label "Trigger"
+    club 2
   ]
   node
   [
     id 52
     label "TSN103"
+    club 1
   ]
   node
   [
     id 53
     label "TSN83"
+    club 1
   ]
   node
   [
     id 54
     label "Upbang"
+    club 3
   ]
   node
   [
     id 55
     label "Vau"
+    club 2
   ]
   node
   [
     id 56
     label "Wave"
+    club 3
   ]
   node
   [
     id 57
     label "Web"
+    club 3
   ]
   node
   [
     id 58
     label "Whitetip"
+    club 1
   ]
   node
   [
     id 59
     label "Zap"
+    club 1
   ]
   node
   [
     id 60
     label "Zig"
+    club 3
   ]
   node
   [
     id 61
     label "Zipfel"
+    club 1
   ]
   edge
   [
